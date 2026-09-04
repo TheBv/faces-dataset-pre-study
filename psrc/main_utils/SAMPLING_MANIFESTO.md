@@ -24,26 +24,40 @@ speaker-A fragment across one intervening speaker-B turn when:
 2. B's interruption contains at most eight non-punctuation tokens; and
 3. A's return provides evidence of continuation: it starts with a lowercase
    letter, A ends in a comma or dash, or B is a recognized backchannel and A
-   ends in a predefined linking/function word.
+   ends in a predefined linking/function word. A return after an unambiguous
+   unfinished function word can also be reconnected within the same eight-token
+   interruption limit.
 
-The joined text is segmented with the German spaCy model
-`de_core_news_sm`. Thus, one database turn may produce several sentences, and
-an interrupted sentence may draw on more than one turn. Every sentence retains
-its speaker role, role-specific sentence index, source-turn provenance,
+The joined text is parsed with the German spaCy model `de_core_news_sm`, but a
+parser boundary is not accepted blindly. Explicit transcript punctuation is
+preserved, abbreviations are protected, and unsupported parser-only boundaries
+are merged when their left side ends in incomplete syntax. Conversely, a
+conservative set of question, subject, and discourse restarts can recover a
+missing boundary in an ASR run-on when the preceding clause is syntactically
+complete. Boundaries inside unbalanced brackets are not accepted.
+
+Candidates then pass a deterministic, negation-independent quality gate. It
+removes unbalanced bracket spans, subtitle-credit artifacts (including an
+artifact prefix attached to spoken content), incomplete syntactic tails,
+unresolved ellipses, dependent-clause fragments without terminal punctuation,
+and implausibly long spans. The hard length limit is 120 words; an unpunctuated
+span is limited to 35 words, with an additional multi-clause check from 21
+words onward. These checks depend only on sentence form, not negation cues or
+labels. Self-contained conversational ellipses remain eligible, including
+short responses, numeric answers, nominal answers, greetings, and Likert-scale
+responses.
+
+Thus, one database turn may produce several sentences, and an interrupted
+sentence may draw on more than one turn. Every retained sentence keeps its
+speaker role, role-specific sentence index, source-turn provenance,
 role-specific source-turn indices, and, where applicable, the IDs of
-intervening turns. Automatically reconstructed cross-turn sentences are marked
-`review_required=True`. Turn IDs are taken from the query result when present;
-otherwise, stable one-based positions in the interview's returned turn array
-are used. Short utterances such as
-`Nein.`, `Ja.`, `Okay.`, and `Warum nicht?` are retained. Only blank content,
-punctuation-only content, and narrowly defined technical artifacts such as
-subtitle credits are excluded.
-
-Sentence segmentation and cross-turn reconstruction are automatic rather than
-manual. In particular, an unpunctuated fragment for which no conservative
-bridge is found can still be emitted by spaCy as a sentence. Cross-turn cases
-must therefore be reviewed, and other unpunctuated fragments should also be
-considered during quality control.
+intervening turns. Automatically reconstructed cross-turn sentences, every
+retained sentence without terminal punctuation, and every four-or-more-word
+candidate without a detected finite verb are marked `review_required=True`.
+Turn IDs are taken from the query result when present; otherwise, stable
+one-based positions in the interview's returned turn array are used. Sentence
+segmentation and cross-turn reconstruction remain automatic rather than
+gold-standard manual annotation.
 
 ## Stratified sampling
 
@@ -91,11 +105,13 @@ Sampling is performed without replacement at five levels:
    allocation, interviewer quotas initially target the same corpus-level count
    for all three recurring interviewer IDs. Adjustment remains within fixed
    interview quotas and available role capacities and minimizes deviation from
-   preliminary proportional quotas. Exact equality is a preferred constraint,
-   not stronger than the requirements of 2,000 unique-enough rows, equal
-   interview representation, and minimum speaker coverage. Every distinct
-   speaker identity must receive at least 10 sampled sentences when at least 10
-   eligible sentences are available.
+   preliminary proportional quotas. If the three feasible count intervals do
+   not overlap, each interviewer instead receives the closest feasible total
+   around the midpoint of the narrowest interval gap. Exact equality is a
+   preferred constraint, not stronger than the requirements of 2,000
+   unique-enough rows, equal interview representation, and minimum speaker
+   coverage. Every distinct speaker identity must receive at least 10 sampled
+   sentences when at least 10 eligible sentences are available.
 3. **Speaker role.** Within each interview, its quota is allocated between
    `Interviewer` and `Interviewee` approximately in proportion to their
    available sentence counts. For interview quota `q`, interviewer count `n_I`,
@@ -251,7 +267,9 @@ systematically spread across that timeline and marked `double_annotate=True`.
 The separate annotation-facing CSV is sorted by presentation order and omits
 interview IDs, speaker IDs, and dataset split; the master and train/validation/
 test CSVs retain them. Short-responsive, token-count, finite-verb, and fragment
-flags support quality control but never exclude a sentence by default.
+flags support quality control. A candidate can be excluded by the separately
+reported form-based rules above, while absence of a finite verb by itself is
+not an exclusion: that would remove valid dialogue answers.
 
 The interview report records interviewer and interviewee IDs. Corpus-level
 output reports speaker counts, role proportions, eligible and sampled turns,
@@ -260,7 +278,7 @@ constraint relaxation, annotation overlap, and reproducibility settings.
 SHA-256 provenance covers the `query2` result, interviewer mapping result, both
 query texts, sampling source code, configuration, Python/NumPy versions, and
 the spaCy model/version. Only `query2` and `query_mapping` are executed against
-the database.
+the database. Sentence cleanup does not add or modify any database query.
 
 ## CSV files and column dictionary
 
@@ -306,7 +324,7 @@ and an interview occurs in exactly one of them.
 | `interrupted_by_turn_ids` | JSON array of turn IDs belonging to the short intervening other-speaker turn(s) bridged by reconstruction; empty for ordinary sentences. |
 | `cross_turn_sentence` | Whether the sampled sentence was reconstructed across a detected other-speaker interruption. |
 | `reconstruction` | `automatic` for a conservatively bridged cross-turn sentence and `none` otherwise. |
-| `review_required` | Whether the sentence requires manual reconstruction review; currently true for automatically reconstructed cross-turn sentences. |
+| `review_required` | Whether the sentence requires manual review; true for automatically reconstructed cross-turn sentences, retained sentences without terminal punctuation, and four-or-more-word candidates without a detected finite verb. |
 | `previous_turn_role` | Role of the cleaned chronological turn immediately before the first contributing turn; blank at the beginning of an interview. |
 | `previous_turn_text` | Full text of that preceding cleaned turn. |
 | `source_turn_text` | Full text of all contributing cleaned turns joined in chronological order. It supplies context and can be broader than the segmented `text`. |
@@ -376,43 +394,39 @@ SHA-256 provenance for reproducing the recorded run.
 ## Achieved sample for the recorded seed-42 run
 
 For the query results identified by the SHA-256 hashes in
-`neg_anno_sampling_summary.json`, preprocessing produced 6,380 eligible
-sentences: 3,881 interviewer and 2,499 interviewee sentences. The final sample
-contains exactly 2,000 rows from all 27 interviews, with 25 interviews
-contributing 74 rows and two contributing 75. Its train/validation/test counts
-are 1,556 / 222 / 222, corresponding to 21 / 3 / 3 complete interviews.
+`neg_anno_sampling_summary.json`, preprocessing produced 6,005 eligible
+sentences after excluding 651 structural-quality failures and 21 technical
+artifacts. The eligible pool contains 3,690 interviewer and 2,315 interviewee
+sentences. The final sample contains exactly 2,000 rows from all 27 interviews,
+with 25 interviews contributing 74 rows and two contributing 75. Its
+train/validation/test counts are 1,556 / 222 / 222, corresponding to 21 / 3 /
+3 complete interviews.
 
-The sample contains 787 interviewer rows (39.35%) and 1,213 interviewee rows
-(60.65%). It represents 1,614 distinct role-specific turns: 612 interviewer
-and 1,002 interviewee turns. All five position strata occur in every one of
-the 54 interview-role streams. The 30 distinct speaker identities all have at
-least 10 rows; the smallest unique-interviewee count is 10. Four training
+The sample contains 849 interviewer rows (42.45%) and 1,151 interviewee rows
+(57.55%). It represents 1,553 distinct role-specific turns: 636 interviewer
+and 917 interviewee turns. All five position strata occur in every one of the
+54 interview-role streams. The 30 distinct speaker identities all have at
+least 10 rows; the smallest unique-interviewee count is 10. Three training
 interviews contain five rows from their recurring interviewer—one in every
 position stratum—while their interviewees remain above 10. All validation and
 test roles remain at or above 10.
 
-The recurring-interviewer totals are 128 for interviewer 3, 262 for
-interviewer 4, and 397 for interviewer 5. They cannot be made equal under the
-simultaneous constraints. Interviewer 3 conducted the two held-out interviews
-whose combined quota is 148; retaining 10 interviewee rows in each imposes an
-upper bound of 128 interviewer rows. Conversely, a duplicate-constrained
-maximum-flow capacity audit found that the 19 interviews conducted by
-interviewer 5 can provide at most 1,034 interviewee rows from their combined
-1,408-row quota while retaining five-position interviewer coverage (and the
-held-out minimum). They therefore require at least 374 interviewer rows. These
-bounds prove that equal recurring-interviewer totals are infeasible; the
-duplicate-safe rebalancer minimizes squared imbalance within the realizable
-sample instead.
+The recurring-interviewer totals are 112 for interviewer 3, 283 for
+interviewer 4, and 454 for interviewer 5. Exact equality is infeasible under
+the simultaneous candidate-capacity, per-interview, role-floor, positional,
+and duplicate constraints. The allocation and duplicate-safe rebalancing
+diagnostics are recorded explicitly in the JSON summary rather than silently
+claiming equality.
 
-The 6,380 source sentences form 3,034 similarity clusters. Of these, 379
-clusters contain duplicates, covering 3,725 source sentences; the largest
-cluster contains 150 source sentences. The final sample contains 2,000 unique
+The 6,005 eligible sentences form 2,769 similarity clusters. Of these, 345
+clusters contain duplicates, covering 3,581 source sentences; the largest
+cluster contains 153 source sentences. The final sample contains 2,000 unique
 cluster IDs, zero repeated normalised forms, and zero pairs satisfying the
-configured near-duplicate rule. There are 203 source clusters marked as
+configured near-duplicate rule. There are 199 source clusters marked as
 scripted recurrence, and selected instances carry that audit flag rather than
-being categorically excluded. The sample also contains 702 reconstructed
-cross-turn sentences flagged for review and 200 items assigned to systematic
-double annotation.
+being categorically excluded. The sample contains 271 reconstructed cross-turn
+sentences, 606 rows marked for review under the combined review policy, and 200
+items assigned to systematic double annotation.
 
 ## Methodological limitation
 

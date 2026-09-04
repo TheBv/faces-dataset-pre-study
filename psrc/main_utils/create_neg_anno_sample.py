@@ -37,6 +37,9 @@ RANDOM_SEED = 42
 MIN_ROLE_SAMPLE = 10
 N_POSITION_STRATA = 5
 MAX_INTERRUPTION_TOKENS = 8
+MAX_SENTENCE_TOKENS = 120
+MAX_UNPUNCTUATED_SENTENCE_TOKENS = 35
+MIN_FRAGMENT_REVIEW_TOKENS = 4
 NEAR_DUPLICATE_SIMILARITY_THRESHOLD = 0.92
 NEAR_DUPLICATE_MIN_TOKENS = 6
 DOUBLE_ANNOTATION_FRACTION = 0.10
@@ -128,12 +131,22 @@ ANNOTATION_FIELDNAMES = (
 _SENTENCE_FINAL_RE = re.compile(r"[.!?…][\"'»”’)]*$")
 _WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _TECHNICAL_ARTIFACT_RES = (
-    re.compile(r"^untertitel(?:ung)?\b.*\b(?:19|20)\d{2}[.!]?$", re.IGNORECASE),
+    re.compile(
+        r"^untertitel(?:ung)?(?:\s+des\s+zdf)?(?:\s*,?\s*(?:19|20)\d{2})?"
+        r"[,.!]?$",
+        re.IGNORECASE,
+    ),
     re.compile(r"^©\s*.+$", re.IGNORECASE),
+    re.compile(r"^(?:19|20)\d{2}[.!]?$"),
     re.compile(
         r"^\[?(?:musik|pause|stille|unverständlich|unverständlich\s+\d+)\]?[.!]?$",
         re.IGNORECASE,
     ),
+)
+_TECHNICAL_ARTIFACT_PREFIX_RE = re.compile(
+    r"^(?:(?:untertitel(?:ung)?(?:\s+des\s+zdf)?"
+    r"(?:\s*,?\s*(?:19|20)\d{2})?)[,.!]?\s*)+",
+    re.IGNORECASE,
 )
 _BACKCHANNEL_PHRASES = {
     "ach so",
@@ -204,6 +217,163 @@ _INCOMPLETE_FINAL_WORDS = {
     "wie",
     "wird",
     "zu",
+}
+_DEPENDENT_INITIAL_WORDS = {
+    "als",
+    "dass",
+    "falls",
+    "indem",
+    "nachdem",
+    "ob",
+    "obgleich",
+    "obwohl",
+    "seitdem",
+    "sobald",
+    "sofern",
+    "solange",
+    "während",
+    "weil",
+    "wenn",
+    "wobei",
+}
+_UNAMBIGUOUS_INCOMPLETE_FINAL_WORDS = {
+    "als",
+    "aber",
+    "also",
+    "am",
+    "an",
+    "auf",
+    "das",
+    "dass",
+    "dem",
+    "den",
+    "der",
+    "die",
+    "ein",
+    "eine",
+    "einem",
+    "einen",
+    "einer",
+    "für",
+    "im",
+    "mit",
+    "ob",
+    "obwohl",
+    "oder",
+    "und",
+    "von",
+    "weil",
+    "wenn",
+    "wie",
+    "wo",
+    "zu",
+}
+_HIGH_CONFIDENCE_UNPUNCTUATED_STARTS = {
+    "Aber",
+    "Also",
+    "Danke",
+    "Danach",
+    "Dann",
+    "Das",
+    "Dazu",
+    "Du",
+    "Er",
+    "Es",
+    "Genau",
+    "Gut",
+    "Hallo",
+    "Haben",
+    "Heute",
+    "Ich",
+    "Inwieweit",
+    "Ja",
+    "Jetzt",
+    "Kann",
+    "Können",
+    "Man",
+    "Möchten",
+    "Nein",
+    "Okay",
+    "Sie",
+    "Trifft",
+    "Und",
+    "Wann",
+    "Warum",
+    "Was",
+    "Welche",
+    "Welcher",
+    "Welches",
+    "Wem",
+    "Wen",
+    "Wer",
+    "Wie",
+    "Wieso",
+    "Wir",
+    "Wo",
+    "Wodurch",
+    "Womit",
+    "Würden",
+}
+_PARSER_INCOMPLETE_FINAL_WORDS = {
+    "darf",
+    "denke",
+    "denken",
+    "dürfte",
+    "glaube",
+    "glauben",
+    "kann",
+    "könnte",
+    "mag",
+    "meine",
+    "meinen",
+    "möchte",
+    "muss",
+    "müsste",
+    "sage",
+    "sagen",
+    "soll",
+    "sollte",
+    "will",
+    "würde",
+}
+_ELLIPTICAL_RESPONSE_WORDS = {
+    "alleinstehend",
+    "danke",
+    "dankeschön",
+    "geschieden",
+    "ledig",
+    "monatlich",
+    "nein",
+    "nie",
+    "selten",
+    "seltener",
+    "single",
+    "stunden",
+    "täglich",
+    "teilzeit",
+    "verheiratet",
+    "verwitwet",
+    "vollzeit",
+    "wöchentlich",
+}
+_GERMAN_NUMBER_WORDS = {
+    "null",
+    "eins",
+    "zwei",
+    "drei",
+    "vier",
+    "fünf",
+    "sechs",
+    "sieben",
+    "acht",
+    "neun",
+    "zehn",
+    "zwanzig",
+    "dreißig",
+    "vierzig",
+    "fünfzig",
+    "hundert",
+    "tausend",
 }
 
 query = """(SELECT experiment
@@ -391,6 +561,7 @@ class InterviewSentences:
     empty_turn_count: int
     clean_turn_count: int
     technical_artifact_count: int
+    sentence_quality_exclusion_counts: dict[str, int] = field(default_factory=dict)
     interviewer_id: Any = None
     max_interruption_tokens: int = MAX_INTERRUPTION_TOKENS
     turn_count_by_role: dict[str, int] = field(default_factory=dict)
@@ -790,6 +961,436 @@ def _has_finite_verb(tokens: Any) -> bool:
     return False
 
 
+def _finite_verb_count(tokens: Any) -> int:
+    return sum(
+        token.pos_ in {"VERB", "AUX"}
+        and (
+            not token.morph.get("VerbForm")
+            or "Fin" in token.morph.get("VerbForm")
+        )
+        for token in tokens
+    )
+
+
+def _has_explicit_finite_verb(tokens: Any) -> bool:
+    return any(
+        token.pos_ in {"VERB", "AUX"}
+        and "Fin" in token.morph.get("VerbForm")
+        for token in tokens
+    )
+
+
+def _has_unresolved_dependent_clause(tokens: Any) -> bool:
+    for index, token in enumerate(tokens):
+        if token.text.casefold() not in _DEPENDENT_INITIAL_WORDS | {"ob"}:
+            continue
+        if not _has_finite_verb(tokens[index + 1 :]):
+            return True
+    return False
+
+
+def _strip_technical_artifact_prefix(text: str) -> str:
+    """Remove repeated subtitle-credit noise without changing spoken wording."""
+
+    previous = None
+    text = _normalise_text(text)
+    while text and text != previous:
+        previous = text
+        text = _normalise_text(_TECHNICAL_ARTIFACT_PREFIX_RE.sub("", text, count=1))
+    return text
+
+
+def _has_balanced_ordered_brackets(text: str) -> bool:
+    pairs = {")": "(", "]": "[", "}": "{"}
+    stack: list[str] = []
+    for character in text:
+        if character in pairs.values():
+            stack.append(character)
+        elif character in pairs:
+            if not stack or stack.pop() != pairs[character]:
+                return False
+    return not stack
+
+
+def _ends_with_incomplete_syntax(tokens: Any, text: str) -> bool:
+    words = _words(text)
+    if not words:
+        return True
+    if words[-1] in _UNAMBIGUOUS_INCOMPLETE_FINAL_WORDS:
+        return True
+    lexical_tokens = [
+        token for token in tokens if not token.is_space and not token.is_punct
+    ]
+    if not lexical_tokens:
+        return True
+    return (
+        lexical_tokens[-1].pos_ in {"ADP", "CCONJ", "DET", "SCONJ"}
+        or (
+            len(lexical_tokens) >= 2
+            and lexical_tokens[-2].pos_ == "DET"
+            and lexical_tokens[-1].tag_ == "ADJA"
+            and not ends_with_sentence_boundary(text)
+        )
+    )
+
+
+def _is_allowed_elliptical_response(text: str) -> bool:
+    """Retain self-contained dialogue answers, not arbitrary parser fragments."""
+
+    words = _words(text)
+    if not words:
+        return False
+    if _is_short_responsive(text):
+        return True
+    if (
+        text.rstrip().endswith("?")
+        and len(words) <= 20
+        and any(
+            word
+            in {
+                "wann",
+                "warum",
+                "was",
+                "welche",
+                "welcher",
+                "welches",
+                "wem",
+                "wen",
+                "wer",
+                "wie",
+                "wieso",
+                "wo",
+                "wodurch",
+                "womit",
+            }
+            for word in words
+        )
+    ):
+        return True
+    if any(word in _ELLIPTICAL_RESPONSE_WORDS for word in words):
+        return True
+    if any(word.isdigit() or word in _GERMAN_NUMBER_WORDS for word in words):
+        return len(words) <= 4 or any(
+            word in {"euro", "minuten", "prozent", "stunden"}
+            for word in words
+        )
+    normalised = " ".join(words)
+    if re.search(
+        r"\btr\w{1,12}\s+(?:(?:er|es)\s+)?"
+        r"(?:gar\s+|eher\s+|überwiegend\s+)?"
+        r"(?:nicht\s+)?zu\b",
+        normalised,
+    ):
+        return True
+    return normalised in {
+        "alles klar",
+        "bis dann",
+        "bis gleich",
+        "eher nicht",
+        "gar nicht",
+        "gar nichts",
+        "gute frage",
+        "guten morgen",
+        "guten tag",
+        "hallo",
+        "ihnen auch",
+        "kein problem",
+        "sehr schön",
+        "tschüss",
+        "vielen dank",
+    }
+
+
+def _is_likert_response(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\btr\w{1,12}\s+(?:(?:er|es)\s+)?"
+            r"(?:gar\s+|eher\s+|überwiegend\s+)?"
+            r"(?:nicht\s+)?zu\b",
+            " ".join(_words(text)),
+        )
+    )
+
+
+def _quality_exclusion_reason(tokens: Any, text: str) -> str | None:
+    """Return a surface/syntax quality reason, independent of negation."""
+
+    n_tokens = len(_words(text))
+    if not _has_balanced_ordered_brackets(text):
+        return "unbalanced_brackets"
+    if n_tokens > MAX_SENTENCE_TOKENS:
+        return "overlong_sentence"
+    if (
+        n_tokens > MAX_UNPUNCTUATED_SENTENCE_TOKENS
+        and not ends_with_sentence_boundary(text)
+    ):
+        return "overlong_unpunctuated_span"
+    if (
+        n_tokens > 20
+        and not ends_with_sentence_boundary(text)
+        and _finite_verb_count(tokens) >= 4
+    ):
+        return "multi_clause_unpunctuated_span"
+    allowed_elliptical_response = _is_allowed_elliptical_response(text)
+    if allowed_elliptical_response and text.rstrip().endswith(("...", "…")):
+        return None
+    if text.rstrip().endswith(("...", "…")):
+        return "truncated_ellipsis"
+    if _ends_with_incomplete_syntax(tokens, text) and not _is_likert_response(text):
+        return "incomplete_final_syntax"
+    words = _words(text)
+    if (
+        len(words) > 3
+        and not ends_with_sentence_boundary(text)
+        and words[-1]
+        in {
+            "was",
+            "welche",
+            "welchem",
+            "welchen",
+            "welcher",
+            "welches",
+        }
+    ):
+        return "incomplete_final_syntax"
+    if (
+        words
+        and len(words) > 3
+        and words[-1] in {"also", "denn"}
+    ):
+        return "incomplete_final_syntax"
+    if (
+        words
+        and len(words) > 5
+        and not ends_with_sentence_boundary(text)
+        and words[-1]
+        in {
+            "dich",
+            "du",
+            "er",
+            "es",
+            "ich",
+            "ihr",
+            "mich",
+            "sie",
+            "wir",
+        }
+    ):
+        return "incomplete_final_syntax"
+    if (
+        words
+        and len(words) > 8
+        and not ends_with_sentence_boundary(text)
+        and words[-1]
+        in {
+            "darf",
+            "dürfte",
+            "kann",
+            "könnte",
+            "mag",
+            "möchte",
+            "muss",
+            "soll",
+            "sollte",
+            "will",
+            "würde",
+        }
+    ):
+        return "incomplete_final_syntax"
+    if (
+        words
+        and words[0] in _DEPENDENT_INITIAL_WORDS
+        and not ends_with_sentence_boundary(text)
+    ):
+        return "dependent_unpunctuated_fragment"
+    if (
+        words
+        and words[0] == "sie"
+        and len(words) > 3
+        and not _has_explicit_finite_verb(tokens[1:4])
+    ):
+        return "leading_question_fragment"
+    if allowed_elliptical_response:
+        return None
+    if not _has_finite_verb(tokens):
+        lexical_tokens = [
+            token
+            for token in tokens
+            if not token.is_space and not token.is_punct
+        ]
+        if (
+            lexical_tokens
+            and "Inf" in lexical_tokens[-1].morph.get("VerbForm")
+            and not ends_with_sentence_boundary(text)
+        ):
+            return "non_finite_infinitive_fragment"
+    return None
+
+
+def _has_explicit_boundary_before(doc: Any, token_index: int) -> bool:
+    return ends_with_sentence_boundary(doc.text[: doc[token_index].idx])
+
+
+def _looks_like_abbreviation_before(doc: Any, token_index: int) -> bool:
+    prefix = doc.text[: doc[token_index].idx].rstrip()
+    return bool(
+        re.search(
+            r"(?:\b(?:bzw|ca|dr|prof|usw)\.|\b(?:d|z)\."
+            r"|\b(?:d|z)\s*\.\s*[bh]\.)$",
+            prefix,
+            re.IGNORECASE,
+        )
+        or re.search(r"\d\.\d$", prefix)
+    )
+
+
+def _is_high_confidence_unpunctuated_start(
+    doc: Any,
+    start_index: int,
+    token_index: int,
+) -> bool:
+    token = doc[token_index]
+    capitalised_start = token.text in _HIGH_CONFIDENCE_UNPUNCTUATED_STARTS
+    next_tokens = doc[token_index + 1 : min(len(doc), token_index + 5)]
+    nearby_finite_verb = any(
+        _has_explicit_finite_verb(doc[index : index + 1])
+        for index in range(token_index + 1, min(len(doc), token_index + 5))
+    )
+    if (
+        token.text in {"Du", "Er", "Es", "Man", "Sie", "Und"}
+        and not nearby_finite_verb
+    ):
+        capitalised_start = False
+    lowercase_question_restart = (
+        token.text == "wie"
+        and nearby_finite_verb
+        and len(next_tokens)
+        and next_tokens[0].text.casefold()
+        in {"auch", "häufig", "ist", "oft", "sind", "viel"}
+    ) or (
+        token.text in {"warum", "wieso"}
+        and nearby_finite_verb
+    ) or (
+        token.text in {"wann", "was", "wer", "wo"}
+        and len(next_tokens)
+        and _has_explicit_finite_verb(next_tokens[:1])
+    )
+    lowercase_subject_restart = (
+        token.text in {"du", "er", "es", "ich", "man", "sie", "wir"}
+        and nearby_finite_verb
+    )
+    lowercase_discourse_restart = (
+        token.text in {"also", "danach", "dann", "jetzt"}
+        and nearby_finite_verb
+    )
+    if (
+        not capitalised_start
+        and not lowercase_question_restart
+        and not lowercase_subject_restart
+        and not lowercase_discourse_restart
+    ):
+        return False
+    left = doc[start_index:token_index]
+    left_word_count = len(_words(left.text))
+    if left_word_count < 4:
+        return False
+    if not _has_finite_verb(left) and not (
+        capitalised_start and nearby_finite_verb and left_word_count >= 6
+    ):
+        return False
+    if _words(left.text)[-1] in _PARSER_INCOMPLETE_FINAL_WORDS:
+        return False
+    if _ends_with_incomplete_syntax(left, left.text) and not _is_likert_response(
+        left.text
+    ):
+        return False
+    if _has_unresolved_dependent_clause(left):
+        return False
+    prefix = doc.text[: token.idx].rstrip()
+    return bool(prefix) and prefix[-1] not in ",:;/-–—("
+
+
+def _parser_boundary_has_complete_left(
+    doc: Any,
+    start_index: int,
+    token_index: int,
+) -> bool:
+    left = doc[start_index:token_index]
+    text = _normalise_text(left.text)
+    if (
+        not text
+        or not _has_balanced_ordered_brackets(text)
+        or (
+            text.casefold().startswith(("untertitel", "©"))
+            and not ends_with_sentence_boundary(text)
+        )
+        or _ends_with_incomplete_syntax(left, text)
+    ):
+        return False
+    words = _words(text)
+    if _has_unresolved_dependent_clause(left):
+        return False
+    if words and words[-1] in _PARSER_INCOMPLETE_FINAL_WORDS:
+        return False
+    interrogative_stub = (
+        words
+        and words[0]
+        in {"wann", "warum", "was", "wer", "wie", "wieso", "wo"}
+        and len(words) <= 6
+        and (
+            left[-1].pos_ in {"AUX", "VERB"}
+            or any(
+                word in {"bin", "bist", "ist", "sind", "war", "waren"}
+                for word in words
+            )
+        )
+        and doc[token_index].pos_ in {"ADJ", "DET", "NOUN", "PRON", "PROPN"}
+    )
+    return not interrogative_stub
+
+
+def _sentence_spans(doc: Any) -> list[Any]:
+    """Reconcile parser starts with transcript punctuation and safe run-on cues.
+
+    The German parser sometimes inserts a boundary inside a single question or
+    noun phrase. A parser-only boundary is accepted only when its left side is
+    demonstrably complete. Conversely, explicit punctuation and a small set of
+    unambiguous question, subject, and discourse starts can restore boundaries
+    the parser missed in noisy ASR text.
+    """
+
+    if not len(doc):
+        return []
+    parser_starts = {sentence.start for sentence in doc.sents}
+    starts = [0]
+    for token_index in range(1, len(doc)):
+        explicit_boundary = _has_explicit_boundary_before(doc, token_index)
+        abbreviation = _looks_like_abbreviation_before(doc, token_index)
+        if explicit_boundary and not abbreviation:
+            starts.append(token_index)
+            continue
+        if abbreviation:
+            continue
+        if (
+            token_index in parser_starts
+            and _parser_boundary_has_complete_left(
+                doc, starts[-1], token_index
+            )
+        ):
+            starts.append(token_index)
+            continue
+        if _is_high_confidence_unpunctuated_start(
+            doc, starts[-1], token_index
+        ):
+            starts.append(token_index)
+    starts = sorted(set(starts))
+    return [
+        doc[start:end]
+        for start, end in zip(starts, starts[1:] + [len(doc)])
+        if start < end
+    ]
+
+
 def _is_backchannel(text: str) -> bool:
     return " ".join(_words(text)) in _BACKCHANNEL_PHRASES
 
@@ -800,16 +1401,26 @@ def _looks_like_continuation(
     continuation: str,
 ) -> bool:
     first_words = _words(first_fragment)
+    tail = re.split(r"[.!?…]+[\"'»”’)]*\s*", first_fragment)[-1]
+    tail_words = _words(tail)
     next_character = next((char for char in continuation if char.isalpha()), "")
     starts_lowercase = bool(next_character and next_character.islower())
     ends_with_joining_punctuation = first_fragment.rstrip().endswith((",", "-", "–", "—"))
-    ends_with_incomplete_word = bool(
+    ends_with_incomplete_word_after_backchannel = bool(
         first_words and first_words[-1] in _INCOMPLETE_FINAL_WORDS
+    )
+    ends_with_unambiguous_incomplete_word = bool(
+        tail_words
+        and tail_words[-1] in _UNAMBIGUOUS_INCOMPLETE_FINAL_WORDS
     )
     return (
         starts_lowercase
         or ends_with_joining_punctuation
-        or (_is_backchannel(interruption) and ends_with_incomplete_word)
+        or ends_with_unambiguous_incomplete_word
+        or (
+            _is_backchannel(interruption)
+            and ends_with_incomplete_word_after_backchannel
+        )
     )
 
 
@@ -878,7 +1489,7 @@ def _segment_block(
     interruptions: Sequence[Sequence[Any]],
     role_turn_index_by_global: Mapping[int, int],
     nlp: Any,
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     block_text = ""
     piece_spans: list[tuple[int, int, TurnPart, int]] = []
     turn_spans: list[tuple[int, int]] = []
@@ -900,11 +1511,18 @@ def _segment_block(
         turn_spans.append((turn_start, len(block_text)))
 
     sentences: list[dict[str, Any]] = []
-    artifact_count = 0
-    for span in nlp(block_text).sents:
-        text = _normalise_text(span.text)
+    exclusion_counts: defaultdict[str, int] = defaultdict(int)
+    for span in _sentence_spans(nlp(block_text)):
+        raw_text = _normalise_text(span.text)
+        text = _strip_technical_artifact_prefix(raw_text)
         if _is_technical_artifact(text):
-            artifact_count += 1
+            exclusion_counts["technical_artifact"] += 1
+            continue
+
+        quality_tokens = span if text == raw_text else nlp(text)
+        exclusion_reason = _quality_exclusion_reason(quality_tokens, text)
+        if exclusion_reason is not None:
+            exclusion_counts[exclusion_reason] += 1
             continue
 
         overlapping = [
@@ -938,13 +1556,14 @@ def _segment_block(
         cross_turn = bool(interrupted_by)
         if not source_turn_indices_within_role:
             raise AssertionError("A sentence must overlap at least one source turn")
-        finite_verb = _has_finite_verb(span)
+        finite_verb = _has_finite_verb(quality_tokens)
+        n_tokens = len(_words(text))
         sentences.append(
             {
                 "interview_id": _jsonable(interview_id),
                 "speaker_role": role,
                 "text": text,
-                "n_tokens": len(_words(text)),
+                "n_tokens": n_tokens,
                 "short_responsive": _is_short_responsive(text),
                 "finite_verb": finite_verb,
                 "fragment": not finite_verb,
@@ -958,10 +1577,14 @@ def _segment_block(
                 "interrupted_by_turn_ids": interrupted_by,
                 "cross_turn_sentence": cross_turn,
                 "reconstruction": "automatic" if cross_turn else "none",
-                "review_required": cross_turn,
+                "review_required": (
+                    cross_turn
+                    or not ends_with_sentence_boundary(text)
+                    or (not finite_verb and n_tokens >= MIN_FRAGMENT_REVIEW_TOKENS)
+                ),
             }
         )
-    return sentences, artifact_count
+    return sentences, dict(exclusion_counts)
 
 
 def segment_interview(
@@ -970,7 +1593,7 @@ def segment_interview(
     nlp: Any,
     *,
     max_interruption_tokens: int = MAX_INTERRUPTION_TOKENS,
-) -> tuple[dict[str, list[dict[str, Any]]], int]:
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
     """Segment each role, reconnecting only detected short interruptions."""
 
     bridges = detect_interruption_bridges(
@@ -979,7 +1602,7 @@ def segment_interview(
         max_interruption_tokens=max_interruption_tokens,
     )
     by_role: dict[str, list[dict[str, Any]]] = {}
-    artifact_count = 0
+    exclusion_counts: defaultdict[str, int] = defaultdict(int)
     for role in SPEAKER_ROLES:
         role_sentences: list[dict[str, Any]] = []
         role_global_turn_indices = [
@@ -999,11 +1622,12 @@ def segment_interview(
                 nlp,
             )
             role_sentences.extend(block_sentences)
-            artifact_count += removed
+            for reason, count in removed.items():
+                exclusion_counts[reason] += count
         for sentence_index, sentence in enumerate(role_sentences):
             sentence["sentence_index_within_role"] = sentence_index
         by_role[role] = role_sentences
-    return by_role, artifact_count
+    return by_role, dict(exclusion_counts)
 
 
 def prepare_interviews(
@@ -1045,7 +1669,7 @@ def prepare_interviews(
             )
 
         turns, raw_count, empty_count = clean_and_group_turns(record)
-        sentences_by_role, artifact_count = segment_interview(
+        sentences_by_role, exclusion_counts = segment_interview(
             interview_id,
             turns,
             nlp,
@@ -1061,7 +1685,8 @@ def prepare_interviews(
             raw_turn_count=raw_count,
             empty_turn_count=empty_count,
             clean_turn_count=len(turns),
-            technical_artifact_count=artifact_count,
+            technical_artifact_count=exclusion_counts.get("technical_artifact", 0),
+            sentence_quality_exclusion_counts=exclusion_counts,
             interviewer_id=interviewer_id,
             max_interruption_tokens=max_interruption_tokens,
             turn_count_by_role={
@@ -1315,7 +1940,7 @@ def allocate_speaker_balanced_role_quotas(
     *,
     min_role_sample: int = MIN_ROLE_SAMPLE,
 ) -> tuple[list[dict[str, int]], dict[str, Any]]:
-    """Give recurring interviewers equal totals and protect held-out roles."""
+    """Prefer equal recurring-interviewer totals and protect held-out roles."""
 
     if not (
         len(interviews) == len(interview_quotas) == len(interview_splits)
@@ -1396,18 +2021,32 @@ def allocate_speaker_balanced_role_quotas(
         minimum_relaxed = True
         lower_bounds, upper_bounds = bounds_for_all(relax_training_minimum=True)
         common_lower, common_upper = common_range(lower_bounds, upper_bounds)
-    if common_lower > common_upper:
-        raise ValueError(
-            "Equal interviewer sampling is impossible with the fixed interview "
-            "quotas, available role sentences, and protected validation/test "
-            "role minimums"
-        )
 
     preferred_interviewer_total = sum(
         quotas["Interviewer"] for quotas in preferred_role_quotas
     )
     desired_common_quota = int(round(preferred_interviewer_total / len(group_keys)))
-    common_quota = min(max(desired_common_quota, common_lower), common_upper)
+    exact_balance_feasible = common_lower <= common_upper
+    if exact_balance_feasible:
+        balance_anchor = min(
+            max(desired_common_quota, common_lower), common_upper
+        )
+    else:
+        # The feasible group intervals do not overlap. The midpoint of the
+        # narrowest gap minimizes imbalance before the later duplicate-safe
+        # rebalance, while every hard per-interview bound remains enforced.
+        balance_anchor = int(round((common_upper + common_lower) / 2.0))
+
+    group_targets = {
+        key: min(
+            max(
+                balance_anchor,
+                sum(lower_bounds[index] for index in group_indices[key]),
+            ),
+            sum(upper_bounds[index] for index in group_indices[key]),
+        )
+        for key in group_keys
+    }
 
     interviewer_quotas = [0] * len(interviews)
     for key in group_keys:
@@ -1416,7 +2055,7 @@ def allocate_speaker_balanced_role_quotas(
             [preferred_role_quotas[index]["Interviewer"] for index in indices],
             [lower_bounds[index] for index in indices],
             [upper_bounds[index] for index in indices],
-            common_quota,
+            group_targets[key],
             rng,
         )
         for index, quota in zip(indices, adjusted):
@@ -1436,9 +2075,23 @@ def allocate_speaker_balanced_role_quotas(
         key: sum(role_quotas[index]["Interviewer"] for index in group_indices[key])
         for key in group_keys
     }
-    assert set(totals_by_interviewer.values()) == {common_quota}
+    assert totals_by_interviewer == group_targets
+    common_quota = (
+        next(iter(totals_by_interviewer.values()))
+        if len(set(totals_by_interviewer.values())) == 1
+        else None
+    )
     return role_quotas, {
         "interviewer_sentence_quota_each": common_quota,
+        "preferred_interviewer_sentence_quota_each": desired_common_quota,
+        "interviewer_balance_exact_at_allocation": common_quota is not None,
+        "interviewer_sentence_quotas_at_allocation": [
+            {
+                "interviewer_id": group_values[key],
+                "sentence_quota": totals_by_interviewer[key],
+            }
+            for key in group_keys
+        ],
         "number_of_interviewer_ids": len(group_keys),
         "minimum_role_sample_relaxed_for_interviewer_balance": minimum_relaxed,
         "minimum_role_sample_relaxation_scope": (
@@ -2318,10 +2971,32 @@ def sample_globally_without_similar_sentences(
             selected_level = level
             break
     if selected is None:
+        interview_capacity_diagnostics = []
+        for interview, role_quotas in zip(
+            interviews, role_quotas_by_interview
+        ):
+            cluster_ids = {
+                similarity_index.cluster_by_sentence_object[id(sentence)]
+                for role in SPEAKER_ROLES
+                for sentence in interview.sentences_by_role[role]
+            }
+            quota = sum(int(role_quotas[role]) for role in SPEAKER_ROLES)
+            if len(cluster_ids) <= quota + 10:
+                interview_capacity_diagnostics.append(
+                    {
+                        "interview_id": interview.interview_id,
+                        "quota": quota,
+                        "candidates": interview.total_available,
+                        "unique_similarity_clusters": len(cluster_ids),
+                        "exclusions": interview.sentence_quality_exclusion_counts,
+                    }
+                )
         raise ValueError(
             "Cannot select the requested sample without exact/near-duplicate "
             "sentences under any configured stratification relaxation level. "
-            f"Maximum feasible counts by relaxation level: {achieved_by_level}"
+            f"Maximum feasible counts by relaxation level: {achieved_by_level}; "
+            "low-capacity interviews: "
+            f"{interview_capacity_diagnostics!r}"
         )
 
     interviewer_rebalancing_summary = _rebalance_recurring_interviewers(
@@ -2919,9 +3594,22 @@ def stratified_sample(
             interviewer_sample_totals[0] if interviewer_balance_exact else None
         ),
         "preferred_interviewer_sentence_quota_each": interviewer_balance[
-            "interviewer_sentence_quota_each"
+            "preferred_interviewer_sentence_quota_each"
         ],
+        "interviewer_balance_exact_at_allocation": interviewer_balance[
+            "interviewer_balance_exact_at_allocation"
+        ],
+        "interviewer_sentence_quotas_at_allocation": interviewer_balance[
+            "interviewer_sentence_quotas_at_allocation"
+        ],
+        "interviewer_balance_relaxed_for_candidate_capacity": (
+            not interviewer_balance["interviewer_balance_exact_at_allocation"]
+        ),
         "interviewer_balance_relaxed_for_similarity_deduplication": (
+            interviewer_balance["interviewer_balance_exact_at_allocation"]
+            and not interviewer_balance_exact
+        ),
+        "interviewer_balance_not_exact_after_all_constraints": (
             not interviewer_balance_exact
         ),
         "interviewer_sampling": interviewer_sampling_report,
@@ -2978,6 +3666,35 @@ def stratified_sample(
         ),
         "technical_artifact_sentences_removed": sum(
             interview.technical_artifact_count for interview in ordered_interviews
+        ),
+        "sentence_candidates_excluded_by_quality": sum(
+            count
+            for interview in ordered_interviews
+            for reason, count in interview.sentence_quality_exclusion_counts.items()
+            if reason != "technical_artifact"
+        ),
+        "sentence_quality_exclusion_counts": {
+            reason: sum(
+                interview.sentence_quality_exclusion_counts.get(reason, 0)
+                for interview in ordered_interviews
+            )
+            for reason in sorted(
+                {
+                    reason
+                    for interview in ordered_interviews
+                    for reason in interview.sentence_quality_exclusion_counts
+                }
+            )
+        },
+        "maximum_sentence_tokens": MAX_SENTENCE_TOKENS,
+        "maximum_unpunctuated_sentence_tokens": (
+            MAX_UNPUNCTUATED_SENTENCE_TOKENS
+        ),
+        "minimum_fragment_tokens_for_review": MIN_FRAGMENT_REVIEW_TOKENS,
+        "sentence_boundary_policy": (
+            "German spaCy boundaries reconciled with transcript punctuation; "
+            "unsupported parser-only boundaries are merged and conservative "
+            "capitalised question/pronoun starts may split ASR run-ons."
         ),
         "cross_turn_sentences_for_review": sum(
             sentence["cross_turn_sentence"]
@@ -3189,6 +3906,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "random_seed": args.seed,
         "minimum_role_or_speaker_sample": args.min_role_sample,
         "maximum_interruption_tokens": args.max_interruption_tokens,
+        "maximum_sentence_tokens": MAX_SENTENCE_TOKENS,
+        "maximum_unpunctuated_sentence_tokens": (
+            MAX_UNPUNCTUATED_SENTENCE_TOKENS
+        ),
+        "minimum_fragment_tokens_for_review": MIN_FRAGMENT_REVIEW_TOKENS,
         "spacy_model_requested": args.spacy_model,
         "near_duplicate_similarity_threshold": args.near_duplicate_threshold,
         "near_duplicate_min_tokens": args.near_duplicate_min_tokens,
