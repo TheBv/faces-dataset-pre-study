@@ -32,18 +32,26 @@ except ImportError:  # Support ``PYTHONPATH=psrc python .../create_neg_anno_samp
     from main_utils.surreal_client import SurrealClientConfig, surreal_client
 
 
-TOTAL_SAMPLE_SIZE = 1_601
+TOTAL_SAMPLE_SIZE = 1_422
 RANDOM_SEED = 42
 MIN_ROLE_SAMPLE = 10
 N_POSITION_STRATA = 5
 MAX_INTERRUPTION_TOKENS = 8
 MAX_SENTENCE_TOKENS = 120
-MIN_SENTENCE_TOKENS = 4
+MIN_SENTENCE_TOKENS = 2
 MIN_FRAGMENT_REVIEW_TOKENS = 4
-# 1.0 disables conservative near-duplicate matching: only identical
-# normalised forms are clustered. Lower it to re-enable paraphrase clustering.
-NEAR_DUPLICATE_SIMILARITY_THRESHOLD = 1.0
+# Conservative near-duplicate matching is active: no two sampled sentences may
+# be near-identical anywhere in the corpus. 1.0 would restrict clustering to
+# identical normalised forms.
+NEAR_DUPLICATE_SIMILARITY_THRESHOLD = 0.92
 NEAR_DUPLICATE_MIN_TOKENS = 6
+# Near-duplicate wording may not span dataset splits: a cluster formed at this
+# threshold is given to one split, and the other splits' copies leave the
+# candidate pool. Corpus-wide cluster uniqueness already implies split
+# disjointness, so this rule is only needed when
+# NEAR_DUPLICATE_SIMILARITY_THRESHOLD is loosened above it; at 1.0 it is off.
+SPLIT_DISJOINT_SIMILARITY_THRESHOLD = 1.0
+SPLIT_DISJOINT_MIN_TOKENS = 6
 DOUBLE_ANNOTATION_FRACTION = 0.10
 N_TEST_INTERVIEWS = 3
 N_VAL_INTERVIEWS = 3
@@ -1590,6 +1598,129 @@ def allocate_interview_splits(
     return splits
 
 
+def enforce_split_disjoint_similarity(
+    interviews: Sequence[InterviewSentences],
+    interview_splits: Sequence[str],
+    *,
+    threshold: float = SPLIT_DISJOINT_SIMILARITY_THRESHOLD,
+    min_tokens: int = SPLIT_DISJOINT_MIN_TOKENS,
+) -> tuple[list[InterviewSentences], dict[str, Any]]:
+    """Give each near-duplicate cluster to one split and drop the other copies.
+
+    Interview-level splitting alone does not stop a recurring scripted question
+    from reaching both training and evaluation data, because the same
+    instrument is read in every interview. Every cluster formed at ``threshold``
+    is therefore assigned to a single split before quotas are computed.
+    Contested clusters go to the split with the fewest clusters per interview so
+    far, which keeps per-interview capacity comparable across splits.
+    """
+
+    if len(interviews) != len(interview_splits):
+        raise ValueError("Every interview needs exactly one split assignment")
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError("split_disjoint_similarity_threshold must be in (0, 1]")
+    if threshold == 1.0:
+        return list(interviews), {
+            "split_disjoint_similarity_enforced": False,
+            "split_disjoint_similarity_threshold": threshold,
+        }
+
+    index = build_sentence_similarity_index(
+        interviews,
+        threshold=threshold,
+        min_tokens=min_tokens,
+    )
+    split_by_interview = {
+        _identity_key(interview.interview_id): split
+        for interview, split in zip(interviews, interview_splits)
+    }
+    splits_by_cluster: dict[str, set[str]] = defaultdict(set)
+    for interview in interviews:
+        split = split_by_interview[_identity_key(interview.interview_id)]
+        for role in SPEAKER_ROLES:
+            for sentence in interview.sentences_by_role[role]:
+                cluster = index.cluster_by_sentence_object[id(sentence)]
+                splits_by_cluster[cluster].add(split)
+
+    interviews_per_split = {
+        split: max(1, interview_splits.count(split)) for split in DATASET_SPLITS
+    }
+    owner_by_cluster: dict[str, str] = {}
+    owned_counts = {split: 0 for split in DATASET_SPLITS}
+    contested: list[str] = []
+    for cluster in sorted(splits_by_cluster):
+        splits = splits_by_cluster[cluster]
+        if len(splits) == 1:
+            owner = next(iter(splits))
+            owner_by_cluster[cluster] = owner
+            owned_counts[owner] += 1
+        else:
+            contested.append(cluster)
+    for cluster in contested:
+        owner = min(
+            sorted(splits_by_cluster[cluster]),
+            key=lambda split: (
+                owned_counts[split] / interviews_per_split[split],
+                DATASET_SPLITS.index(split),
+            ),
+        )
+        owner_by_cluster[cluster] = owner
+        owned_counts[owner] += 1
+
+    filtered: list[InterviewSentences] = []
+    removed = 0
+    kept = 0
+    for interview in interviews:
+        split = split_by_interview[_identity_key(interview.interview_id)]
+        sentences_by_role: dict[str, list[dict[str, Any]]] = {}
+        for role in SPEAKER_ROLES:
+            retained = []
+            for sentence in interview.sentences_by_role[role]:
+                cluster = index.cluster_by_sentence_object[id(sentence)]
+                if owner_by_cluster[cluster] == split:
+                    retained.append(sentence)
+                else:
+                    removed += 1
+            kept += len(retained)
+            sentences_by_role[role] = retained
+        replacement = InterviewSentences(
+            interview_id=interview.interview_id,
+            sentences_by_role=sentences_by_role,
+            raw_turn_count=interview.raw_turn_count,
+            empty_turn_count=interview.empty_turn_count,
+            clean_turn_count=interview.clean_turn_count,
+            technical_artifact_count=interview.technical_artifact_count,
+            sentence_quality_exclusion_counts=dict(
+                interview.sentence_quality_exclusion_counts
+            ),
+            interviewer_id=interview.interviewer_id,
+            max_interruption_tokens=interview.max_interruption_tokens,
+            turn_count_by_role=dict(interview.turn_count_by_role),
+            dialogue_turns=list(interview.dialogue_turns),
+        )
+        if replacement.total_available == 0:
+            raise ValueError(
+                f"Interview {interview.interview_id!r} has no candidates left "
+                "after split-disjoint duplicate control"
+            )
+        filtered.append(replacement)
+
+    summary = {
+        "split_disjoint_similarity_enforced": True,
+        "split_disjoint_similarity_threshold": threshold,
+        "split_disjoint_min_tokens": min_tokens,
+        "split_disjoint_rule": (
+            "every near-duplicate cluster belongs to exactly one dataset split"
+        ),
+        "split_disjoint_clusters_total": len(splits_by_cluster),
+        "split_disjoint_clusters_contested": len(contested),
+        "split_disjoint_clusters_by_owner": dict(owned_counts),
+        "split_disjoint_candidates_removed": removed,
+        "split_disjoint_candidates_retained": kept,
+    }
+    return filtered, summary
+
+
 def allocate_role_quotas(
     available_by_role: Mapping[str, int],
     interview_quota: int,
@@ -1742,6 +1873,7 @@ def allocate_speaker_balanced_role_quotas(
     rng: np.random.Generator,
     *,
     min_role_sample: int = MIN_ROLE_SAMPLE,
+    role_capacities: Sequence[Mapping[str, int]] | None = None,
 ) -> tuple[list[dict[str, int]], dict[str, Any]]:
     """Prefer equal recurring-interviewer totals and protect held-out roles."""
 
@@ -1757,11 +1889,23 @@ def allocate_speaker_balanced_role_quotas(
     if any(interview.interviewer_id is None for interview in interviews):
         raise ValueError("Every interview requires an interviewer ID before sampling")
 
+    if role_capacities is not None and len(role_capacities) != len(interviews):
+        raise ValueError("role_capacities must cover every interview")
     preferred_role_quotas: list[dict[str, int]] = []
     available_by_interview: list[dict[str, int]] = []
-    for interview, interview_quota in zip(interviews, interview_quotas):
+    for index, (interview, interview_quota) in enumerate(
+        zip(interviews, interview_quotas)
+    ):
+        # Capacity is the number of distinct similarity clusters the role can
+        # supply, never its raw sentence count: only one sentence per cluster
+        # may be sampled.
         available = {
-            role: len(interview.sentences_by_role[role]) for role in SPEAKER_ROLES
+            role: (
+                int(role_capacities[index][role])
+                if role_capacities is not None
+                else len(interview.sentences_by_role[role])
+            )
+            for role in SPEAKER_ROLES
         }
         available_by_interview.append(available)
         preferred_role_quotas.append(
@@ -2865,8 +3009,16 @@ def validate_sample(
     interview_splits: Sequence[str],
     requested_sample_size: int,
     min_role_sample: int,
+    available_capacity: int | None = None,
 ) -> None:
-    total_available = sum(interview.total_available for interview in interviews)
+    # Availability is measured in distinct similarity clusters, because only
+    # one sentence per cluster may be sampled; the raw sentence count would
+    # overstate what the corpus can deliver.
+    total_available = (
+        sum(interview.total_available for interview in interviews)
+        if available_capacity is None
+        else available_capacity
+    )
     expected_size = min(requested_sample_size, total_available)
     assert len(sample) == expected_size
     if total_available >= requested_sample_size:
@@ -3039,6 +3191,10 @@ def stratified_sample(
     ),
     near_duplicate_min_tokens: int = NEAR_DUPLICATE_MIN_TOKENS,
     double_annotation_fraction: float = DOUBLE_ANNOTATION_FRACTION,
+    split_disjoint_similarity_threshold: float = (
+        SPLIT_DISJOINT_SIMILARITY_THRESHOLD
+    ),
+    split_disjoint_min_tokens: int = SPLIT_DISJOINT_MIN_TOKENS,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Sample interviews, roles, turn-position strata, turns, then sentences."""
 
@@ -3050,20 +3206,68 @@ def stratified_sample(
         raise ValueError("near_duplicate_min_tokens must be positive")
     if not 0.0 <= double_annotation_fraction <= 1.0:
         raise ValueError("double_annotation_fraction must be in [0, 1]")
+    if not 0.0 < split_disjoint_similarity_threshold <= 1.0:
+        raise ValueError("split_disjoint_similarity_threshold must be in (0, 1]")
+    if split_disjoint_min_tokens < 1:
+        raise ValueError("split_disjoint_min_tokens must be positive")
     ordered_interviews = sorted(
         interviews, key=lambda interview: _interview_sort_key(interview.interview_id)
     )
     if not ordered_interviews:
         raise ValueError("At least one interview is required")
-    total_available = sum(interview.total_available for interview in ordered_interviews)
-    effective_sample_size = min(total_sample_size, total_available)
-    if effective_sample_size < len(ordered_interviews):
-        raise ValueError("Sample size is too small to represent every interview")
 
     rng = np.random.default_rng(random_seed)
     interview_splits = allocate_interview_splits(ordered_interviews, rng)
+    candidates_before_split_control = sum(
+        interview.total_available for interview in ordered_interviews
+    )
+    ordered_interviews, split_disjoint_summary = enforce_split_disjoint_similarity(
+        ordered_interviews,
+        interview_splits,
+        threshold=split_disjoint_similarity_threshold,
+        min_tokens=split_disjoint_min_tokens,
+    )
+    split_disjoint_summary["candidates_before_split_disjoint_control"] = (
+        candidates_before_split_control
+    )
+    # An interview can only contribute as many rows as it has distinct
+    # similarity clusters: cluster uniqueness, not the raw sentence count, is
+    # its real capacity. Allocating against sentence counts would hand a
+    # duplicate-heavy interview a quota it can never fill, leaving the whole
+    # sample permanently short by that difference.
+    capacity_index = build_sentence_similarity_index(
+        ordered_interviews,
+        threshold=near_duplicate_similarity_threshold,
+        min_tokens=near_duplicate_min_tokens,
+    )
+    role_capacities: list[dict[str, int]] = []
+    interview_capacities: list[int] = []
+    for interview in ordered_interviews:
+        clusters_by_role = {
+            role: {
+                capacity_index.cluster_by_sentence_object[id(sentence)]
+                for sentence in interview.sentences_by_role[role]
+            }
+            for role in SPEAKER_ROLES
+        }
+        # A cluster shared by both roles can still yield only one row, so the
+        # interview capacity is the union, not the sum of the role capacities.
+        interview_capacities.append(
+            len(set().union(*clusters_by_role.values()))
+        )
+        role_capacities.append(
+            {role: len(clusters_by_role[role]) for role in SPEAKER_ROLES}
+        )
+    total_cluster_capacity = sum(interview_capacities)
+    total_available = sum(
+        interview.total_available for interview in ordered_interviews
+    )
+    effective_sample_size = min(total_sample_size, total_cluster_capacity)
+    if effective_sample_size < len(ordered_interviews):
+        raise ValueError("Sample size is too small to represent every interview")
+
     interview_quotas = allocate_equal_quotas(
-        [interview.total_available for interview in ordered_interviews],
+        interview_capacities,
         effective_sample_size,
         rng,
     )
@@ -3074,6 +3278,7 @@ def stratified_sample(
             interview_splits,
             rng,
             min_role_sample=min_role_sample,
+            role_capacities=role_capacities,
         )
     )
     (
@@ -3243,6 +3448,7 @@ def stratified_sample(
         interview_splits,
         total_sample_size,
         min_role_sample,
+        available_capacity=total_cluster_capacity,
     )
 
     interviewer_sampled = sum(
@@ -3369,6 +3575,10 @@ def stratified_sample(
     summary = {
         "requested_sample_size": total_sample_size,
         "total_sentences_available": total_available,
+        "total_unique_cluster_capacity": total_cluster_capacity,
+        "interview_quota_capacity_basis": (
+            "distinct similarity clusters per interview, not raw sentence counts"
+        ),
         "total_sentences_sampled": len(sample),
         "total_interviewer_sentences_available": sum(
             len(interview.sentences_by_role["Interviewer"])
@@ -3539,6 +3749,7 @@ def stratified_sample(
         "sampling_uses_negation_information": False,
         **annotation_summary,
         **deduplication_summary,
+        **split_disjoint_summary,
     }
     return sample, report, summary
 
@@ -3668,6 +3879,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=NEAR_DUPLICATE_MIN_TOKENS,
     )
     parser.add_argument(
+        "--split-disjoint-threshold",
+        type=float,
+        default=SPLIT_DISJOINT_SIMILARITY_THRESHOLD,
+        help=(
+            "similarity threshold at which a near-duplicate cluster is confined "
+            "to one dataset split; 1.0 disables the rule"
+        ),
+    )
+    parser.add_argument(
+        "--split-disjoint-min-tokens",
+        type=int,
+        default=SPLIT_DISJOINT_MIN_TOKENS,
+    )
+    parser.add_argument(
         "--double-annotation-fraction",
         type=float,
         default=DOUBLE_ANNOTATION_FRACTION,
@@ -3701,6 +3926,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("--near-duplicate-min-tokens must be positive")
     if not 0.0 <= args.double_annotation_fraction <= 1.0:
         raise ValueError("--double-annotation-fraction must be in [0, 1]")
+    if not 0.0 < args.split_disjoint_threshold <= 1.0:
+        raise ValueError("--split-disjoint-threshold must be in (0, 1]")
+    if args.split_disjoint_min_tokens < 1:
+        raise ValueError("--split-disjoint-min-tokens must be positive")
 
     nlp = load_sentence_segmenter(args.spacy_model)
     interviewer_mapping = get_mapping()
@@ -3720,6 +3949,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         near_duplicate_similarity_threshold=args.near_duplicate_threshold,
         near_duplicate_min_tokens=args.near_duplicate_min_tokens,
         double_annotation_fraction=args.double_annotation_fraction,
+        split_disjoint_similarity_threshold=args.split_disjoint_threshold,
+        split_disjoint_min_tokens=args.split_disjoint_min_tokens,
     )
     config = {
         "sample_size": args.sample_size,
@@ -3732,6 +3963,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "spacy_model_requested": args.spacy_model,
         "near_duplicate_similarity_threshold": args.near_duplicate_threshold,
         "near_duplicate_min_tokens": args.near_duplicate_min_tokens,
+        "split_disjoint_similarity_threshold": args.split_disjoint_threshold,
+        "split_disjoint_min_tokens": args.split_disjoint_min_tokens,
         "double_annotation_fraction": args.double_annotation_fraction,
         "number_of_position_strata": N_POSITION_STRATA,
         "number_of_test_interviews": N_TEST_INTERVIEWS,

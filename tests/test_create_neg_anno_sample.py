@@ -193,10 +193,16 @@ class MandatorySentenceFormTests(unittest.TestCase):
                     "truncated_ellipsis",
                 )
 
-    def test_rejects_candidates_below_four_words(self) -> None:
-        for text in ("Ja.", "Sehr schön.", "Das ist gut.", "Funktioniert die Technik?"):
+    def test_rejects_candidates_below_the_word_minimum(self) -> None:
+        for text in ("Ja.", "Nein.", "Wunderbar.", "Ö3"):
             with self.subTest(text=text):
                 self.assertEqual(self.exclusion_reason(text), "too_few_words")
+
+    def test_retains_short_but_well_formed_responses(self) -> None:
+        self.assertEqual(sampling.MIN_SENTENCE_TOKENS, 2)
+        for text in ("Gar nicht.", "Eher nicht.", "Sehr schön."):
+            with self.subTest(text=text):
+                self.assertIsNone(self.exclusion_reason(text))
 
     def test_retains_well_formed_sentences(self) -> None:
         for text in (
@@ -268,11 +274,12 @@ class MandatorySentenceFormTests(unittest.TestCase):
         self.assertEqual(
             texts,
             [
+                "Guten Tag.",
                 "Wie oft nutzen Sie das Internet?",
                 "Also ich bin eigentlich jeden Tag online.",
             ],
         )
-        self.assertEqual(exclusions.get("too_few_words"), 2)
+        self.assertEqual(exclusions.get("too_few_words"), 1)
         self.assertEqual(exclusions.get("missing_terminal_punctuation"), 1)
         for sentence in (
             sentence
@@ -286,6 +293,80 @@ class MandatorySentenceFormTests(unittest.TestCase):
             self.assertTrue(
                 sampling.ends_with_sentence_boundary(sentence["text"])
             )
+
+
+class SplitDisjointSimilarityTests(unittest.TestCase):
+    """A near-duplicate wording may not reach two dataset splits."""
+
+    def interview(self, interview_id: int, texts: list[str]) -> sampling.InterviewSentences:
+        sentences = [
+            {
+                "text": text,
+                "sentence_index_within_role": index,
+                "speaker_role": "Interviewer",
+            }
+            for index, text in enumerate(texts)
+        ]
+        return sampling.InterviewSentences(
+            interview_id=interview_id,
+            sentences_by_role={"Interviewer": sentences, "Interviewee": []},
+            raw_turn_count=0,
+            empty_turn_count=0,
+            clean_turn_count=0,
+            technical_artifact_count=0,
+            interviewer_id=1,
+        )
+
+    def test_confines_a_recurring_question_to_one_split(self) -> None:
+        shared = "Bitte sagen Sie mir bei jeder Aussage, ob diese auf Sie zutrifft."
+        near = "Bitte sagen Sie mir bei jeder Aussage, ob diese auf Sie zutraf."
+        interviews = [
+            self.interview(1, [shared, "Der Kollege beschrieb den Zeitplan gestern."]),
+            self.interview(2, [near, "Die Nachbarin plante die Auswertung erneut."]),
+        ]
+        filtered, summary = sampling.enforce_split_disjoint_similarity(
+            interviews, ["train", "test"], threshold=0.92
+        )
+        self.assertTrue(summary["split_disjoint_similarity_enforced"])
+        self.assertEqual(summary["split_disjoint_candidates_removed"], 1)
+        remaining = [
+            sentence["text"]
+            for interview in filtered
+            for sentence in interview.sentences_by_role["Interviewer"]
+        ]
+        self.assertEqual(len(remaining), 3)
+        self.assertNotEqual(
+            {shared, near} <= set(remaining),
+            True,
+            "the recurring wording still reaches both splits",
+        )
+
+    def test_threshold_of_one_disables_the_rule(self) -> None:
+        interviews = [
+            self.interview(1, ["Der Kollege beschrieb den Zeitplan gestern."]),
+            self.interview(2, ["Der Kollege beschrieb den Zeitplan gestern."]),
+        ]
+        filtered, summary = sampling.enforce_split_disjoint_similarity(
+            interviews, ["train", "test"], threshold=1.0
+        )
+        self.assertFalse(summary["split_disjoint_similarity_enforced"])
+        self.assertEqual(
+            sum(len(i.sentences_by_role["Interviewer"]) for i in filtered), 2
+        )
+
+    def test_uncontested_clusters_are_untouched(self) -> None:
+        interviews = [
+            self.interview(1, ["Der Kollege beschrieb den Zeitplan gestern."]),
+            self.interview(2, ["Die Trainerin kritisierte die Kamera vorsichtig."]),
+        ]
+        filtered, summary = sampling.enforce_split_disjoint_similarity(
+            interviews, ["train", "test"], threshold=0.92
+        )
+        self.assertEqual(summary["split_disjoint_candidates_removed"], 0)
+        self.assertEqual(summary["split_disjoint_clusters_contested"], 0)
+        self.assertEqual(
+            sum(len(i.sentences_by_role["Interviewer"]) for i in filtered), 2
+        )
 
 
 class QuotaAllocationTests(unittest.TestCase):

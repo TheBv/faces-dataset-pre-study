@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This procedure creates a reproducible sample of 1,601 sentences from 27
+This procedure creates a reproducible sample of 1,422 sentences from 27
 interviews for subsequent manual negation annotation. Sampling is independent
 of whether a sentence contains negation. Both `Interviewer` and `Interviewee`
 speech are eligible. The sampled data are partitioned by complete interview so
@@ -40,7 +40,7 @@ Candidates then pass a deterministic, negation-independent quality gate. Its
 first stage is a mandatory sentence-form requirement that every eligible
 candidate must satisfy:
 
-1. at least four punctuation-excluding words;
+1. at least two punctuation-excluding words;
 2. a sentence-initial capital letter, ignoring a leading quotation mark,
    bracket, or dash; a candidate that begins with a lowercase letter or with a
    digit is rejected; and
@@ -56,17 +56,19 @@ candidate is reported under the first rule it violates, so the recorded
 exclusion counts are disjoint. Conversational ellipses are no longer exempt:
 short responses, bare numeric or nominal answers, greetings, and Likert-scale
 responses are eligible only when they also meet the mandatory form
-requirement — `Trifft eher nicht zu.` remains eligible, while `Ja.` and
-`Sehr schön.` do not.
+requirement. `Trifft eher nicht zu.` and `Gar nicht.` remain eligible,
+while one-word turns such as `Ja.` and `Nein.` do not: the two-word minimum
+admits a short answer only once it carries more than a bare particle.
 
 Thus, one database turn may produce several sentences, and an interrupted
 sentence may draw on more than one turn. Every retained sentence keeps its
 speaker role, role-specific sentence index, source-turn provenance,
 role-specific source-turn indices, and, where applicable, the IDs of
 intervening turns. Automatically reconstructed cross-turn sentences and every
-candidate without a detected finite verb are marked `review_required=True`;
-because the mandatory form requirement already guarantees terminal punctuation
-and four or more words, unpunctuated retained sentences no longer exist.
+candidate of at least four words without a detected finite verb are marked
+`review_required=True`; because the mandatory form requirement already
+guarantees terminal punctuation, unpunctuated retained sentences no longer
+exist.
 Turn IDs are taken from the query result when present; otherwise, stable
 one-based positions in the interview's returned turn array are used. Sentence
 segmentation and cross-turn reconstruction remain automatic rather than
@@ -105,12 +107,16 @@ rng = np.random.default_rng(42)
 Sampling is performed without replacement at five levels:
 
 1. **Interview.** The target is divided approximately equally across all 27
-   interviews. With sufficient capacity, 19 interviews receive 59 sentences
-   and eight receive 60; the seeded generator selects the larger quotas. If
-   an interview lacks enough sentences, all available sentences are used and
-   the deficit is redistributed approximately equally among interviews with
-   remaining capacity. Consequently, long interviews cannot dominate merely
-   because they contain more sentences.
+   interviews. An interview's capacity is its number of distinct similarity
+   clusters, not its raw sentence count, because only one sentence per cluster
+   may be sampled; allocating against sentence counts would hand a
+   duplicate-heavy interview a quota it can never fill and leave the whole
+   sample permanently short. In the recorded run 11 interviews receive 56
+   sentences, 11 receive 55, and three receive 54; the seeded generator selects
+   the larger quotas. Two interviews are limited by their own capacity to 36
+   and 31, and that deficit is redistributed approximately equally among
+   interviews with remaining capacity. Consequently, long interviews cannot
+   dominate merely because they contain more sentences.
 2. **Speaker identity.** Each interviewee is unique to one interview, so the
    interview ID is also used as that interviewee's speaker ID. Interviewer IDs
    are obtained by applying `get_mapping()` to the experiment/interview ID;
@@ -121,7 +127,7 @@ Sampling is performed without replacement at five levels:
    preliminary proportional quotas. If the three feasible count intervals do
    not overlap, each interviewer instead receives the closest feasible total
    around the midpoint of the narrowest interval gap. Exact equality is a
-   preferred constraint, not stronger than the requirements of 1,601
+   preferred constraint, not stronger than the requirements of 1,422
    unique-enough rows, equal interview representation, and minimum speaker
    coverage. Every distinct speaker identity must receive at least 10 sampled
    sentences when at least 10 eligible sentences are available.
@@ -130,8 +136,9 @@ Sampling is performed without replacement at five levels:
    available sentence counts. For interview quota `q`, interviewer count `n_I`,
    and interviewee count `n_E`, the preliminary interviewer quota is
    `round(q × n_I / (n_I + n_E))`; the interviewee receives the remainder.
-   For example, 120 interviewer and 180 interviewee sentences with `q=59`
-   yield approximately 24 and 35 sampled sentences. When feasible, each
+   Role capacity is likewise counted in distinct similarity clusters. For
+   example, 120 interviewer and 180 interviewee clusters with `q=55` yield
+   approximately 22 and 33 sampled sentences. When feasible, each
    available role receives at least 10 sentences. A role with fewer than 10
    available sentences is fully sampled when the interview quota permits, with
    the remainder assigned to the other role. No artificial 50:50 role balance
@@ -173,30 +180,46 @@ sentences with identical normalised forms belong to the same cluster,
 irrespective of interview, speaker ID, or role. This includes recurring
 scripted wording such as a repeated interview question.
 
-Near-duplicate clustering is available but disabled in the recorded run:
-`near_duplicate_similarity_threshold` is `1.0`, so only identical normalised
-forms are merged. Below `1.0`, two sentences are additionally merged when both
-contain at least six tokens, share a consecutive three-token sequence, and
-their normalised character sequences obtain a `difflib.SequenceMatcher` ratio
-of at least the threshold; connected matches are merged transitively. The
-threshold and minimum length are saved in the sampling summary and can be
-changed through command-line options.
+Near-duplicate comparison is active and deliberately conservative. It is
+applied only when both sentences contain at least six tokens and share a
+consecutive three-token sequence. Their normalised character sequences must
+then obtain a `difflib.SequenceMatcher` ratio of at least
+`near_duplicate_similarity_threshold` (0.92 in the recorded run). Connected
+matches are merged transitively into one cluster. The threshold and minimum
+length are saved in the sampling summary and can be changed through
+command-line options; `1.0` would restrict clustering to identical normalised
+forms.
 
-The threshold is a research parameter with a measured cost. Under the
-mandatory sentence-form requirement, the eligible pool forms 2,152 clusters at
-`1.0` but only 1,685 at `0.92`, because the interviewer stream consists largely
-of the same scripted questions in slightly varying transcription. The
-achievable sample size follows: about 1,100 rows at `0.92` against 1,601 at
-`1.0`. The recorded run therefore keeps the strict sentence-form gate and
-accepts near-identical—but not identical—wording rather than shrinking the
-dataset by a third.
-
-The 1,601 sentences are selected jointly through a capacity-constrained
+The 1,422 sentences are selected jointly through a capacity-constrained
 matching procedure that permits at most one sentence from each similarity
-cluster. Thus, a question repeated verbatim across interviews—or by different
-speakers—can occur at most once in the final dataset; at a threshold below
-`1.0` this also covers near-identical wording. Other sentences are selected to
+cluster. Thus, a question repeated verbatim or near-verbatim across
+interviews—or by different speakers—occurs at most once in the final dataset,
+irrespective of split, speaker, or role. Other sentences are selected to
 fill the vacated quotas; rows are not simply deleted after sampling.
+
+### Split-disjoint near-duplicate control
+
+Interview-level splitting alone does not keep repeated material out of the
+evaluation data: the same instrument is read aloud in every interview, so a
+scripted question recurs across interviews that land in different splits. When
+corpus-wide near-duplicate clustering is loosened, its slightly varying
+transcriptions become different clusters and may be sampled into both training
+and evaluation data. Measured on an earlier run that clustered only identical
+forms, 22.3% of validation and test rows (79 of 355) had a counterpart in
+training at a ratio of at least 0.92, over 310 such pairs.
+
+`enforce_split_disjoint_similarity` addresses this directly: before quotas are
+computed, every cluster formed at `split_disjoint_similarity_threshold` is
+assigned to exactly one split and the other splits' copies leave the candidate
+pool, with contested clusters going to the split holding the fewest clusters
+per interview so far.
+
+In the recorded run the rule is **disabled** (`split_disjoint_similarity_
+threshold = 1.0`) because it is redundant: corpus-wide cluster uniqueness at
+0.92 already forbids a near-duplicate pair anywhere, and therefore across
+splits as well. Enabling it is only meaningful when the corpus-wide threshold
+is loosened above it, and it would otherwise remove candidates that
+cluster uniqueness can still use.
 
 The matcher first attempts to preserve every allocated turn and position
 quota. If global duplicate clusters make those exact turn quotas infeasible,
@@ -215,11 +238,11 @@ imbalance among recurring interviewer totals without changing interview
 quotas, unique-interviewee or held-out role floors, positional coverage, split
 membership, or cluster uniqueness. The interviewer count in a training
 interview may fall as low as five—one sentence in each position stratum—when
-needed to improve corpus-level speaker balance. If 1,601
+needed to improve corpus-level speaker balance. If 1,422
 unique-enough sentences still cannot be selected, the procedure stops with an
 error instead of emitting a smaller or duplicate-containing sample. Feasibility
 is not monotone in the requested size, because the size determines the
-per-interview quota: the recorded 1,601 is feasible while 1,600 is not. The
+per-interview quota: the recorded 1,422 is feasible while 1,424 is not. The
 summary records the activated relaxation level, matching-flow capacities, and
 interviewer counts before and after rebalancing. Each selected row stores its
 stable
@@ -265,8 +288,8 @@ sampling, without being reset.
 
 ## Validation and records
 
-When at least 1,601 eligible sentences exist, the procedure requires exactly
-1,601 sampled rows. It also verifies that every interview is represented, both
+When at least 1,422 eligible sentences exist, the procedure requires exactly
+1,422 sampled rows. It also verifies that every interview is represented, both
 roles are represented whenever both are available, and no source sentence is
 sampled twice. It requires every sampled `similarity_cluster_id` to be unique,
 which rejects exact and configured near-duplicate text even when the source
@@ -277,7 +300,7 @@ for every sufficiently represented speaker identity, and mutually exclusive
 interview membership across all splits. It also asserts the feasible
 10-sentence role floor independently for every validation and test interview.
 Independently of the preprocessing gate, the final validation re-checks the
-mandatory sentence form on every sampled row: at least four words, a
+mandatory sentence form on every sampled row: at least two words, a
 sentence-initial capital letter, and terminal `.`, `!`, or `?` without a
 truncating ellipsis. Re-running the procedure on the same ordered query result
 with seed 42 and the same similarity settings produces the same split
@@ -299,10 +322,8 @@ interview IDs, speaker IDs, and dataset split; the master and train/validation/
 test CSVs retain them. Short-responsive, token-count, finite-verb, and fragment
 flags support quality control. A candidate can be excluded by the separately
 reported form-based rules above, while absence of a finite verb by itself is
-not an exclusion: that would remove valid dialogue answers. Because the
-mandatory form requirement admits only sentences of at least four words,
-`short_responsive` is retained as a schema-stable diagnostic column and is
-`False` for every sampled row.
+not an exclusion: that would remove valid dialogue answers such as
+`Gar nicht.`.
 
 The interview report records interviewer and interviewee IDs. Corpus-level
 output reports speaker counts, role proportions, eligible and sampled turns,
@@ -334,19 +355,19 @@ and an interview occurs in exactly one of them.
 | `interview_id` | Experiment/interview identifier returned by `query2`. |
 | `split` | Interview-level dataset assignment: `train`, `val`, or `test`. |
 | `item_uuid` | Stable UUID derived from interview, role, role-specific sentence index, and normalized sentence text. It identifies the annotation item across files and reruns with unchanged source data. |
-| `presentation_order` | Seeded random order over all 1,601 items, numbered `0`–`1600`; this is the intended annotation order. It is independent of the physical row order in the master file. |
+| `presentation_order` | Seeded random order over all 1,422 items, numbered `0`–`1421`; this is the intended annotation order. It is independent of the physical row order in the master file. |
 | `double_annotate` | Whether the item belongs to the systematic 10% double-annotation subset. |
 | `speaker_role` | `Interviewer` or `Interviewee`. |
 | `speaker_id` | Recurring interviewer ID from `get_mapping()` for interviewer rows; the interview ID for the unique interviewee in that interview. Role and ID should be used together as the speaker key. |
 | `sentence_index_within_role` | Position of the sentence in that interview's complete segmented stream for the given role, starting at `0`; it is a source index, not its order in the sample. |
 | `position_stratum` | Sequential fifth of the role-specific cleaned-turn sequence containing the sentence's primary turn: `1` is earliest and `5` latest. |
-| `text` | Automatically segmented sentence selected for annotation. It always has at least four words, a capital-letter start, and terminal `.`, `!`, or `?`. For a conservatively reconstructed interruption, this contains the joined sentence. |
+| `text` | Automatically segmented sentence selected for annotation. It always has at least two words, a capital-letter start, and terminal `.`, `!`, or `?`. For a conservatively reconstructed interruption, this contains the joined sentence. |
 | `similarity_cluster_id` | Stable identifier for the corpus-wide exact/near-duplicate connected component. Every sampled row has a different cluster ID. |
 | `similarity_cluster_size` | Number of eligible source sentences represented by that similarity cluster, including the selected sentence. |
 | `similarity_cluster_interview_count` | Number of distinct source interviews represented in the similarity cluster. |
 | `scripted_recurrence` | Audit flag indicating that the cluster contains an exact normalized form observed in at least three interviews. It is not an exclusion rule. |
-| `n_tokens` | Punctuation-excluding word count used by the preprocessing quality heuristics. It is at least 4 for every eligible sentence. |
-| `short_responsive` | Heuristic flag for a one- or two-word response beginning with a recognized responsive/backchannel word. Such candidates are excluded by the four-word minimum, so the column is `False` throughout and is kept only for schema stability. |
+| `n_tokens` | Punctuation-excluding word count used by the preprocessing quality heuristics. It is at least 2 for every eligible sentence. |
+| `short_responsive` | Heuristic flag for a one- or two-word response beginning with a recognized responsive/backchannel word. Under the two-word minimum a two-word responsive answer can be sampled, so the flag marks genuine short responses. |
 | `finite_verb` | Whether the German spaCy analysis found a finite `VERB` or `AUX` in the sentence. |
 | `fragment` | Quality-control heuristic equal to the absence of a detected finite verb. It is not a definitive linguistic fragment annotation. |
 | `primary_turn_index_within_role` | Zero-based index of the first contributing cleaned turn in this role's turn stream. This turn determines positional and individual-turn stratification. |
@@ -357,7 +378,7 @@ and an interview occurs in exactly one of them.
 | `interrupted_by_turn_ids` | JSON array of turn IDs belonging to the short intervening other-speaker turn(s) bridged by reconstruction; empty for ordinary sentences. |
 | `cross_turn_sentence` | Whether the sampled sentence was reconstructed across a detected other-speaker interruption. |
 | `reconstruction` | `automatic` for a conservatively bridged cross-turn sentence and `none` otherwise. |
-| `review_required` | Whether the sentence requires manual review; true for automatically reconstructed cross-turn sentences and for candidates without a detected finite verb. Terminal punctuation is no longer a review reason because it is mandatory for eligibility. |
+| `review_required` | Whether the sentence requires manual review; true for automatically reconstructed cross-turn sentences and for candidates of at least four words without a detected finite verb. Terminal punctuation is no longer a review reason because it is mandatory for eligibility. |
 | `previous_turn_role` | Role of the cleaned chronological turn immediately before the first contributing turn; blank at the beginning of an interview. |
 | `previous_turn_text` | Full text of that preceding cleaned turn. |
 | `source_turn_text` | Full text of all contributing cleaned turns joined in chronological order. It supplies context and can be broader than the segmented `text`. |
@@ -374,7 +395,7 @@ columns rather than infer meaning from row order.
 ### Blinded annotation file
 
 `neg_anno_annotation_items.csv` contains the annotation-facing view of the
-same 1,601 rows, sorted by `presentation_order`. The following columns retain
+same 1,422 rows, sorted by `presentation_order`. The following columns retain
 the meanings defined above:
 
 `item_uuid`, `presentation_order`, `double_annotate`, `speaker_role`, `text`,
@@ -402,7 +423,7 @@ sentences.
 | `split` | The single split assigned to the complete interview. |
 | `interviewer_available`, `interviewee_available` | Eligible segmented source sentences for each role after preprocessing. |
 | `total_available` | Sum of the two role-specific available counts. |
-| `interview_quota` | Number of rows the interview must contribute to the final sample, 59 or 60 in the recorded run. |
+| `interview_quota` | Number of rows the interview must contribute to the final sample, 54 to 56 in the recorded run, or the interview's full cluster capacity when that is smaller. |
 | `interviewer_sampled`, `interviewee_sampled` | Achieved sampled sentences for each role. Their sum equals `interview_quota`. |
 | `interviewer_turns_total`, `interviewee_turns_total` | Cleaned non-empty chronological turns belonging to each role, including turns that yield no eligible sentence. |
 | `interviewer_turns_eligible`, `interviewee_turns_eligible` | Distinct primary turns for which at least one eligible sentence exists. |
@@ -427,66 +448,79 @@ SHA-256 provenance for reproducing the recorded run.
 ## Achieved sample for the recorded seed-42 run
 
 For the query results identified by the SHA-256 hashes in
-`neg_anno_sampling_summary.json`, preprocessing produced 3,638 eligible
-sentences after excluding 3,018 structural-quality failures and 21 technical
+`neg_anno_sampling_summary.json`, preprocessing produced 4,220 eligible
+sentences after excluding 2,436 structural-quality failures and 21 technical
 artifacts. The mandatory sentence-form requirement accounts for most of the
-exclusions: 2,050 candidates under four words, 360 without a capital-letter
-start, 342 without terminal punctuation, and 31 truncating ellipses; the
-remaining 235 are incomplete final tails and leading-question fragments. The
-eligible pool contains 2,730 interviewer and 908 interviewee sentences.
+exclusions: 1,065 candidates under two words, 551 without a capital-letter
+start, 407 without terminal punctuation, and 48 truncating ellipses; the
+remaining 365 are incomplete final tails and leading-question fragments. The
+eligible pool contains 2,915 interviewer and 1,305 interviewee sentences, which
+form 4,091 clusters of allocatable capacity.
 
-The final sample contains exactly 1,601 rows from all 27 interviews, with 19
-interviews contributing 59 rows and eight contributing 60. Its
-train/validation/test counts are 1,246 / 178 / 177, corresponding to 21 / 3 / 3
-complete interviews.
+The final sample contains exactly 1,422 rows from all 27 interviews, with 18
+interviews contributing 53 rows and nine contributing 52 — no interview is
+limited by its own capacity. The train/validation/test counts are
+1,106 / 158 / 158, corresponding to 21 / 3 / 3 complete interviews.
 
-The sample contains 977 interviewer rows (61.02%) and 624 interviewee rows
-(38.98%). This reverses the role proportions of the earlier, more permissive
-run, and it is a direct consequence of the sentence-form requirement rather
-than of the sampling design: scripted interviewer questions are transcribed as
-complete, punctuated sentences far more often than spontaneous interviewee
-speech, so the interviewee share of the eligible pool falls from 39% of 6,005
-candidates to 25% of 3,638. Role quotas remain proportional to availability, as
-specified above.
+The sample contains 630 interviewer rows (44.3%) and 792 interviewee rows
+(55.7%). Removing near-duplicates corpus-wide restores an interviewee majority:
+the recurring scripted questions that dominate the interviewer stream collapse
+into single clusters and can be sampled only once, so the role proportions
+follow spontaneous speech rather than transcription quality.
 
-The sample represents 1,195 distinct role-specific turns: 702 interviewer and
-493 interviewee turns. Every position stratum that has eligible capacity is
-represented in the sample. Because the run activates the
-`interview_fixed_role_minima_only` relaxation, positional quotas adapt to
-unique-cluster availability instead of being equal by construction, and the
-achieved stratum totals are 485 / 202 / 271 / 299 / 344 for strata 1 to 5.
+The sample represents 1,146 distinct role-specific turns. Every position
+stratum that has eligible capacity is represented. Because the run activates
+the `interview_fixed_role_minima_only` relaxation, positional and turn quotas
+adapt to unique-cluster availability instead of being equal by construction;
+the achieved stratum totals are 448 / 195 / 254 / 241 / 284 for strata 1 to 5.
+Turn-level quotas are therefore attempted and relaxed: the role floors remain
+position-stratified, while the flexible remainder of each interview quota is
+drawn from an interview-wide pool. No rule caps how many sentences one turn may
+contribute.
 
-Of the 30 distinct speaker identities, 28 reach at least 10 rows. The two
-exceptions are the interviewees of interviews 7 and 18, whose complete eligible
-pools contain only 7 and 6 sentences; both are sampled exhaustively, which is
-what the minimum-coverage rule requires when fewer than 10 sentences exist. All
-validation and test roles remain at or above 10.
+All 30 distinct speaker identities reach at least 10 rows, so the
+minimum-coverage rule holds without exception in this run. The
+recurring-interviewer totals are 83 for interviewer 3, 210 for interviewer 4,
+and 337 for interviewer 5. Exact equality is infeasible under the simultaneous
+candidate-capacity, per-interview, role-floor, positional, and duplicate
+constraints. The allocation and duplicate-safe rebalancing diagnostics are
+recorded explicitly in the JSON summary rather than silently claiming equality.
 
-The recurring-interviewer totals are 102 for interviewer 3, 296 for interviewer
-4, and 579 for interviewer 5. Exact equality is infeasible under the
-simultaneous candidate-capacity, per-interview, role-floor, positional, and
-duplicate constraints. The allocation and duplicate-safe rebalancing
-diagnostics are recorded explicitly in the JSON summary rather than silently
-claiming equality.
+The 4,220 eligible sentences form 2,121 similarity clusters. Of these, 232
+contain duplicates; the largest holds 46 source sentences. Clustering rests on
+286 exact normalised duplicate forms and 1,486 conservative near-duplicate
+links. The final sample contains 1,422 unique cluster IDs, and 121 rows carry
+the scripted-recurrence audit flag. It contains 232 reconstructed cross-turn
+sentences, 346 rows marked for review, 53 rows flagged `short_responsive`, and
+142 items assigned to systematic double annotation. 166 rows have exactly two
+words and 121 have three.
 
-The 3,638 eligible sentences form 2,152 similarity clusters under
-exact-duplicate control. Of these, 221 clusters contain duplicates, covering
-1,707 source sentences; the largest cluster contains 46 source sentences. The
-final sample contains 1,601 unique cluster IDs and zero repeated normalised
-forms. There are 143 source clusters marked as scripted recurrence, of which
-131 are represented in the sample; selected instances carry that audit flag
-rather than being categorically excluded. The sample contains 277 reconstructed
-cross-turn sentences, 405 rows marked for review under the combined review
-policy, and 160 items assigned to systematic double annotation.
+Verified on the released files: no sampled sentence falls below two words,
+starts with a lowercase letter or digit, lacks terminal punctuation, or ends in
+a truncating ellipsis; no normalised form is repeated; and no two sampled
+sentences of at least six tokens form a near-duplicate pair at ratio 0.92,
+anywhere in the corpus or across splits.
 
-The sample size is itself a finding. Under the mandatory sentence-form
-requirement and cluster uniqueness, the corpus cannot supply 2,000 rows by any
-configuration: the measured ceilings are 1,102 rows with near-duplicate
-clustering at `0.92`, 1,213 rows if the minimum is lowered to three words and
-digit-initial sentences are admitted, 1,601 rows under the recorded
-configuration, and 1,820 rows with every form rule and the near-duplicate rule
-loosened together. The recorded configuration is the largest sample that
-preserves the sentence-form requirement in full.
+The six-token floor is a deliberate limit with a measurable residue. 605
+sampled rows fall below it, and near-duplicate comparison never examines them,
+so 36 near-identical short pairs remain, nine of them spanning two splits —
+for example `Und danke für Ihre Offenheit.` in training beside `Danke für Ihre
+Offenheit.` in validation. Lowering the floor is not the obvious repair: on
+short strings a character ratio of 0.92 is reached by a one-character
+difference, which would merge `Gar nicht.` with `Gar nichts.` and `Ich würde
+sagen 9.` with `Ich würde sagen 8.`. Those are different answers, and in a
+negation dataset the first pair is a distinction the annotation exists to
+capture. Exact repetition is controlled at every length; conservative
+near-duplicate control begins at six tokens.
+
+The sample size is a finding rather than a target. Under the mandatory
+sentence-form requirement and corpus-wide near-duplicate uniqueness, the corpus
+does not supply 2,000 rows: 4,220 eligible sentences reduce to 2,121 clusters,
+and equal interview representation, role floors, and positional coverage can
+jointly realise 1,422 of them. That figure was located by descending from an
+infeasible request and following the maximum flow the matcher reports at each
+step; feasibility is not monotone in the requested size, because the size
+determines the per-interview quota.
 
 ## Methodological limitation
 
