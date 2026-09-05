@@ -32,15 +32,17 @@ except ImportError:  # Support ``PYTHONPATH=psrc python .../create_neg_anno_samp
     from main_utils.surreal_client import SurrealClientConfig, surreal_client
 
 
-TOTAL_SAMPLE_SIZE = 2_000
+TOTAL_SAMPLE_SIZE = 1_601
 RANDOM_SEED = 42
 MIN_ROLE_SAMPLE = 10
 N_POSITION_STRATA = 5
 MAX_INTERRUPTION_TOKENS = 8
 MAX_SENTENCE_TOKENS = 120
-MAX_UNPUNCTUATED_SENTENCE_TOKENS = 35
+MIN_SENTENCE_TOKENS = 4
 MIN_FRAGMENT_REVIEW_TOKENS = 4
-NEAR_DUPLICATE_SIMILARITY_THRESHOLD = 0.92
+# 1.0 disables conservative near-duplicate matching: only identical
+# normalised forms are clustered. Lower it to re-enable paraphrase clustering.
+NEAR_DUPLICATE_SIMILARITY_THRESHOLD = 1.0
 NEAR_DUPLICATE_MIN_TOKENS = 6
 DOUBLE_ANNOTATION_FRACTION = 0.10
 N_TEST_INTERVIEWS = 3
@@ -129,6 +131,7 @@ ANNOTATION_FIELDNAMES = (
 )
 
 _SENTENCE_FINAL_RE = re.compile(r"[.!?…][\"'»”’)]*$")
+_SENTENCE_OPENING_CHARACTERS = "\"'«»„“‚‘([{-–— \t"
 _WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _TECHNICAL_ARTIFACT_RES = (
     re.compile(
@@ -335,45 +338,6 @@ _PARSER_INCOMPLETE_FINAL_WORDS = {
     "sollte",
     "will",
     "würde",
-}
-_ELLIPTICAL_RESPONSE_WORDS = {
-    "alleinstehend",
-    "danke",
-    "dankeschön",
-    "geschieden",
-    "ledig",
-    "monatlich",
-    "nein",
-    "nie",
-    "selten",
-    "seltener",
-    "single",
-    "stunden",
-    "täglich",
-    "teilzeit",
-    "verheiratet",
-    "verwitwet",
-    "vollzeit",
-    "wöchentlich",
-}
-_GERMAN_NUMBER_WORDS = {
-    "null",
-    "eins",
-    "zwei",
-    "drei",
-    "vier",
-    "fünf",
-    "sechs",
-    "sieben",
-    "acht",
-    "neun",
-    "zehn",
-    "zwanzig",
-    "dreißig",
-    "vierzig",
-    "fünfzig",
-    "hundert",
-    "tausend",
 }
 
 query = """(SELECT experiment
@@ -942,6 +906,13 @@ def ends_with_sentence_boundary(text: str) -> bool:
     return bool(_SENTENCE_FINAL_RE.search(text.rstrip()))
 
 
+def starts_with_sentence_capital(text: str) -> bool:
+    """Whether the candidate visibly opens a sentence with a capital letter."""
+
+    opening = text.strip().lstrip(_SENTENCE_OPENING_CHARACTERS)
+    return bool(opening) and opening[0].isalpha() and opening[0].isupper()
+
+
 def _words(text: str) -> list[str]:
     return [match.group(0).casefold() for match in _WORD_RE.finditer(text)]
 
@@ -959,17 +930,6 @@ def _has_finite_verb(tokens: Any) -> bool:
         if not verb_forms or "Fin" in verb_forms:
             return True
     return False
-
-
-def _finite_verb_count(tokens: Any) -> int:
-    return sum(
-        token.pos_ in {"VERB", "AUX"}
-        and (
-            not token.morph.get("VerbForm")
-            or "Fin" in token.morph.get("VerbForm")
-        )
-        for token in tokens
-    )
 
 
 def _has_explicit_finite_verb(tokens: Any) -> bool:
@@ -1034,73 +994,6 @@ def _ends_with_incomplete_syntax(tokens: Any, text: str) -> bool:
     )
 
 
-def _is_allowed_elliptical_response(text: str) -> bool:
-    """Retain self-contained dialogue answers, not arbitrary parser fragments."""
-
-    words = _words(text)
-    if not words:
-        return False
-    if _is_short_responsive(text):
-        return True
-    if (
-        text.rstrip().endswith("?")
-        and len(words) <= 20
-        and any(
-            word
-            in {
-                "wann",
-                "warum",
-                "was",
-                "welche",
-                "welcher",
-                "welches",
-                "wem",
-                "wen",
-                "wer",
-                "wie",
-                "wieso",
-                "wo",
-                "wodurch",
-                "womit",
-            }
-            for word in words
-        )
-    ):
-        return True
-    if any(word in _ELLIPTICAL_RESPONSE_WORDS for word in words):
-        return True
-    if any(word.isdigit() or word in _GERMAN_NUMBER_WORDS for word in words):
-        return len(words) <= 4 or any(
-            word in {"euro", "minuten", "prozent", "stunden"}
-            for word in words
-        )
-    normalised = " ".join(words)
-    if re.search(
-        r"\btr\w{1,12}\s+(?:(?:er|es)\s+)?"
-        r"(?:gar\s+|eher\s+|überwiegend\s+)?"
-        r"(?:nicht\s+)?zu\b",
-        normalised,
-    ):
-        return True
-    return normalised in {
-        "alles klar",
-        "bis dann",
-        "bis gleich",
-        "eher nicht",
-        "gar nicht",
-        "gar nichts",
-        "gute frage",
-        "guten morgen",
-        "guten tag",
-        "hallo",
-        "ihnen auch",
-        "kein problem",
-        "sehr schön",
-        "tschüss",
-        "vielen dank",
-    }
-
-
 def _is_likert_response(text: str) -> bool:
     return bool(
         re.search(
@@ -1115,115 +1008,26 @@ def _is_likert_response(text: str) -> bool:
 def _quality_exclusion_reason(tokens: Any, text: str) -> str | None:
     """Return a surface/syntax quality reason, independent of negation."""
 
-    n_tokens = len(_words(text))
+    words = _words(text)
+    n_tokens = len(words)
     if not _has_balanced_ordered_brackets(text):
         return "unbalanced_brackets"
-    if n_tokens > MAX_SENTENCE_TOKENS:
-        return "overlong_sentence"
-    if (
-        n_tokens > MAX_UNPUNCTUATED_SENTENCE_TOKENS
-        and not ends_with_sentence_boundary(text)
-    ):
-        return "overlong_unpunctuated_span"
-    if (
-        n_tokens > 20
-        and not ends_with_sentence_boundary(text)
-        and _finite_verb_count(tokens) >= 4
-    ):
-        return "multi_clause_unpunctuated_span"
-    allowed_elliptical_response = _is_allowed_elliptical_response(text)
-    if allowed_elliptical_response and text.rstrip().endswith(("...", "…")):
-        return None
+    if n_tokens < MIN_SENTENCE_TOKENS:
+        return "too_few_words"
+    if not starts_with_sentence_capital(text):
+        return "lowercase_sentence_start"
     if text.rstrip().endswith(("...", "…")):
         return "truncated_ellipsis"
+    if not ends_with_sentence_boundary(text):
+        return "missing_terminal_punctuation"
+    if n_tokens > MAX_SENTENCE_TOKENS:
+        return "overlong_sentence"
     if _ends_with_incomplete_syntax(tokens, text) and not _is_likert_response(text):
         return "incomplete_final_syntax"
-    words = _words(text)
-    if (
-        len(words) > 3
-        and not ends_with_sentence_boundary(text)
-        and words[-1]
-        in {
-            "was",
-            "welche",
-            "welchem",
-            "welchen",
-            "welcher",
-            "welches",
-        }
-    ):
+    if words[-1] in {"also", "denn"}:
         return "incomplete_final_syntax"
-    if (
-        words
-        and len(words) > 3
-        and words[-1] in {"also", "denn"}
-    ):
-        return "incomplete_final_syntax"
-    if (
-        words
-        and len(words) > 5
-        and not ends_with_sentence_boundary(text)
-        and words[-1]
-        in {
-            "dich",
-            "du",
-            "er",
-            "es",
-            "ich",
-            "ihr",
-            "mich",
-            "sie",
-            "wir",
-        }
-    ):
-        return "incomplete_final_syntax"
-    if (
-        words
-        and len(words) > 8
-        and not ends_with_sentence_boundary(text)
-        and words[-1]
-        in {
-            "darf",
-            "dürfte",
-            "kann",
-            "könnte",
-            "mag",
-            "möchte",
-            "muss",
-            "soll",
-            "sollte",
-            "will",
-            "würde",
-        }
-    ):
-        return "incomplete_final_syntax"
-    if (
-        words
-        and words[0] in _DEPENDENT_INITIAL_WORDS
-        and not ends_with_sentence_boundary(text)
-    ):
-        return "dependent_unpunctuated_fragment"
-    if (
-        words
-        and words[0] == "sie"
-        and len(words) > 3
-        and not _has_explicit_finite_verb(tokens[1:4])
-    ):
+    if words[0] == "sie" and not _has_explicit_finite_verb(tokens[1:4]):
         return "leading_question_fragment"
-    if allowed_elliptical_response:
-        return None
-    if not _has_finite_verb(tokens):
-        lexical_tokens = [
-            token
-            for token in tokens
-            if not token.is_space and not token.is_punct
-        ]
-        if (
-            lexical_tokens
-            and "Inf" in lexical_tokens[-1].morph.get("VerbForm")
-            and not ends_with_sentence_boundary(text)
-        ):
-            return "non_finite_infinitive_fragment"
     return None
 
 
@@ -1579,7 +1383,6 @@ def _segment_block(
                 "reconstruction": "automatic" if cross_turn else "none",
                 "review_required": (
                     cross_turn
-                    or not ends_with_sentence_boundary(text)
                     or (not finite_verb and n_tokens >= MIN_FRAGMENT_REVIEW_TOKENS)
                 ),
             }
@@ -3069,6 +2872,21 @@ def validate_sample(
     if total_available >= requested_sample_size:
         assert len(sample) == requested_sample_size
 
+    for row in sample:
+        text = str(row["text"])
+        assert len(_words(text)) >= MIN_SENTENCE_TOKENS, (
+            f"Sampled sentence has fewer than {MIN_SENTENCE_TOKENS} words: {text!r}"
+        )
+        assert starts_with_sentence_capital(text), (
+            f"Sampled sentence does not start with a capital letter: {text!r}"
+        )
+        assert ends_with_sentence_boundary(text), (
+            f"Sampled sentence lacks terminal punctuation: {text!r}"
+        )
+        assert not text.rstrip().endswith(("...", "…")), (
+            f"Sampled sentence ends in a truncating ellipsis: {text!r}"
+        )
+
     source_keys = [
         (
             _identity_key(row["interview_id"]),
@@ -3687,8 +3505,10 @@ def stratified_sample(
             )
         },
         "maximum_sentence_tokens": MAX_SENTENCE_TOKENS,
-        "maximum_unpunctuated_sentence_tokens": (
-            MAX_UNPUNCTUATED_SENTENCE_TOKENS
+        "minimum_sentence_tokens": MIN_SENTENCE_TOKENS,
+        "mandatory_sentence_form": (
+            "at least 4 words, a capital-letter start, and terminal '.', '!' "
+            "or '?' without a truncating ellipsis"
         ),
         "minimum_fragment_tokens_for_review": MIN_FRAGMENT_REVIEW_TOKENS,
         "sentence_boundary_policy": (
@@ -3907,9 +3727,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "minimum_role_or_speaker_sample": args.min_role_sample,
         "maximum_interruption_tokens": args.max_interruption_tokens,
         "maximum_sentence_tokens": MAX_SENTENCE_TOKENS,
-        "maximum_unpunctuated_sentence_tokens": (
-            MAX_UNPUNCTUATED_SENTENCE_TOKENS
-        ),
+        "minimum_sentence_tokens": MIN_SENTENCE_TOKENS,
         "minimum_fragment_tokens_for_review": MIN_FRAGMENT_REVIEW_TOKENS,
         "spacy_model_requested": args.spacy_model,
         "near_duplicate_similarity_threshold": args.near_duplicate_threshold,

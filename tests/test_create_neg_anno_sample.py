@@ -104,12 +104,16 @@ class SentenceCleaningTests(unittest.TestCase):
 
     def test_rejects_clear_incomplete_tail(self) -> None:
         self.assertEqual(
-            self.exclusion_reason("Wir würden im Rahmen der"),
+            self.exclusion_reason("Wir würden im Rahmen der."),
             "incomplete_final_syntax",
         )
 
     def test_retains_self_contained_dialogue_responses(self) -> None:
-        for text in ("Nein.", "Eher nicht.", "Eine 9.", "Warum nicht?"):
+        for text in (
+            "Nein, das habe ich nicht.",
+            "Das trifft eher nicht zu.",
+            "Warum ist das nicht so?",
+        ):
             with self.subTest(text=text):
                 self.assertIsNone(self.exclusion_reason(text))
 
@@ -142,10 +146,146 @@ class SentenceCleaningTests(unittest.TestCase):
     def test_rejects_dangling_relative_tail(self) -> None:
         self.assertEqual(
             self.exclusion_reason(
-                "Dort befindet sich auch ein Bildschirm, in welchem"
+                "Dort befindet sich auch ein Bildschirm, in welchem."
             ),
             "incomplete_final_syntax",
         )
+
+
+class MandatorySentenceFormTests(unittest.TestCase):
+    """Every eligible candidate must look like a complete written sentence."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.nlp = sampling.load_sentence_segmenter()
+
+    def exclusion_reason(self, text: str) -> str | None:
+        return sampling._quality_exclusion_reason(self.nlp(text), text)
+
+    def test_rejects_lowercase_sentence_start(self) -> None:
+        for text in (
+            "und dann war ich wieder zu Hause.",
+            "es werden schon so 45 Stunden sein.",
+            "1, 8, wunderbar und gut.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    self.exclusion_reason(text),
+                    "lowercase_sentence_start",
+                )
+
+    def test_rejects_missing_terminal_punctuation(self) -> None:
+        for text in (
+            "Haben Sie noch Fragen oder möchten",
+            "Das sind total viele Punkte",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    self.exclusion_reason(text),
+                    "missing_terminal_punctuation",
+                )
+
+    def test_rejects_truncating_ellipsis(self) -> None:
+        for text in ("Ich weiß es nicht genau…", "Ich weiß es nicht genau..."):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    self.exclusion_reason(text),
+                    "truncated_ellipsis",
+                )
+
+    def test_rejects_candidates_below_four_words(self) -> None:
+        for text in ("Ja.", "Sehr schön.", "Das ist gut.", "Funktioniert die Technik?"):
+            with self.subTest(text=text):
+                self.assertEqual(self.exclusion_reason(text), "too_few_words")
+
+    def test_retains_well_formed_sentences(self) -> None:
+        for text in (
+            "Das ist ein guter Punkt.",
+            "Wie oft nutzen Sie das Internet?",
+            '"Das war wirklich anstrengend."',
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(self.exclusion_reason(text))
+
+    def test_sentence_capital_detection(self) -> None:
+        self.assertTrue(sampling.starts_with_sentence_capital("Ähnlich war es."))
+        self.assertTrue(sampling.starts_with_sentence_capital('„Ja", sagte er.'))
+        self.assertFalse(sampling.starts_with_sentence_capital("ähnlich war es."))
+        self.assertFalse(sampling.starts_with_sentence_capital("45 Stunden pro Woche."))
+        self.assertFalse(sampling.starts_with_sentence_capital("   "))
+
+    def test_segmented_interviews_only_keep_conforming_sentences(self) -> None:
+        turns = [
+            sampling.Turn(
+                role="Interviewer",
+                text=(
+                    "Guten Tag. Wie oft nutzen Sie das Internet? Und dann "
+                    "wollte ich noch"
+                ),
+                source_turn_ids=[1],
+                source_chunk_ids=[],
+                start_time=None,
+                end_time=None,
+                chunk_count=1,
+                parts=[
+                    sampling.TurnPart(
+                        text=(
+                            "Guten Tag. Wie oft nutzen Sie das Internet? Und "
+                            "dann wollte ich noch"
+                        ),
+                        source_turn_ids=[1],
+                        source_chunk_ids=[],
+                    )
+                ],
+            ),
+            sampling.Turn(
+                role="Interviewee",
+                text="Ja. Also ich bin eigentlich jeden Tag online.",
+                source_turn_ids=[2],
+                source_chunk_ids=[],
+                start_time=None,
+                end_time=None,
+                chunk_count=1,
+                parts=[
+                    sampling.TurnPart(
+                        text="Ja. Also ich bin eigentlich jeden Tag online.",
+                        source_turn_ids=[2],
+                        source_chunk_ids=[],
+                    )
+                ],
+            ),
+        ]
+        sentences_by_role, exclusions = sampling.segment_interview(
+            "interview-1",
+            turns,
+            self.nlp,
+        )
+        texts = [
+            sentence["text"]
+            for role in sampling.SPEAKER_ROLES
+            for sentence in sentences_by_role[role]
+        ]
+        self.assertEqual(
+            texts,
+            [
+                "Wie oft nutzen Sie das Internet?",
+                "Also ich bin eigentlich jeden Tag online.",
+            ],
+        )
+        self.assertEqual(exclusions.get("too_few_words"), 2)
+        self.assertEqual(exclusions.get("missing_terminal_punctuation"), 1)
+        for sentence in (
+            sentence
+            for role in sampling.SPEAKER_ROLES
+            for sentence in sentences_by_role[role]
+        ):
+            self.assertGreaterEqual(sentence["n_tokens"], sampling.MIN_SENTENCE_TOKENS)
+            self.assertTrue(
+                sampling.starts_with_sentence_capital(sentence["text"])
+            )
+            self.assertTrue(
+                sampling.ends_with_sentence_boundary(sentence["text"])
+            )
 
 
 class QuotaAllocationTests(unittest.TestCase):
