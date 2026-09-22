@@ -1,0 +1,42 @@
+{
+  "config": {
+    "variant": "reference",
+    "task": "scope",
+    "architecture": "plain",
+    "bert_model": "EuroBERT/EuroBERT-210m",
+    "epochs": 10,
+    "batchsize": 16,
+    "learning_rate": 2e-05,
+    "max_length": 256,
+    "seed": 43,
+    "too_long": {
+      "train": 0,
+      "eval": 0,
+      "test": 0
+    }
+  },
+  "eval": {
+    "eval_loss": 0.4306378662586212,
+    "eval_precision": 0.6766917293233082,
+    "eval_recall": 0.7317073170731707,
+    "eval_f1": 0.703125,
+    "eval_accuracy": 0.841995841995842,
+    "eval_support": 123,
+    "eval_runtime": 0.2553,
+    "eval_samples_per_second": 148.843,
+    "eval_steps_per_second": 11.751,
+    "epoch": 10.0
+  },
+  "test": {
+    "test_loss": 0.5843592882156372,
+    "test_precision": 0.7878787878787878,
+    "test_recall": 0.5473684210526316,
+    "test_f1": 0.6459627329192547,
+    "test_accuracy": 0.8857715430861723,
+    "test_support": 190,
+    "test_runtime": 0.2523,
+    "test_samples_per_second": 146.626,
+    "test_steps_per_second": 11.889,
+    "epoch": 10.0
+  }
+}

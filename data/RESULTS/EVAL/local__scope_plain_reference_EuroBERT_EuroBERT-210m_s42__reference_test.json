@@ -1,0 +1,20 @@
+{
+  "model": "data/MODELS/SCOPE_PLAIN/scope_plain_reference_EuroBERT_EuroBERT-210m_s42",
+  "source": "local",
+  "task": "scope",
+  "architecture": "plain",
+  "variant": "reference",
+  "split": "test",
+  "max_length": 256,
+  "truncated_blocks": 0,
+  "metrics": {
+    "precision": 0.8145161290322581,
+    "recall": 0.531578947368421,
+    "f1": 0.643312101910828,
+    "accuracy": 0.8877755511022044,
+    "support": 190,
+    "exact_match": 0.32432432432432434,
+    "blocks": 37
+  },
+  "predictions_file": "/home/staff_homes/lehammer/Documents/work/faces-dataset-pre-study/data/RESULTS/EVAL/local__scope_plain_reference_EuroBERT_EuroBERT-210m_s42__reference_test.pred.conll"
+}

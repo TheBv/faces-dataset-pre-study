@@ -1,0 +1,38 @@
+{
+  "config": {
+    "task": "scope",
+    "variant": "reference",
+    "architecture": "BERTResidualGATv2ContextGatedFusion",
+    "bert_model": "EuroBERT/EuroBERT-210m",
+    "spacy_model": "de_core_news_sm",
+    "epochs": 10,
+    "batchsize": 16,
+    "learning_rate": 2e-05,
+    "max_length": 256,
+    "seed": 42
+  },
+  "eval": {
+    "eval_loss": 0.5339183807373047,
+    "eval_precision": 0.7293233082706767,
+    "eval_recall": 0.7886178861788617,
+    "eval_f1": 0.7578125,
+    "eval_accuracy": 0.8711018711018711,
+    "eval_support": 123,
+    "eval_runtime": 0.3086,
+    "eval_samples_per_second": 123.156,
+    "eval_steps_per_second": 9.723,
+    "epoch": 10.0
+  },
+  "test": {
+    "test_loss": 0.5919343829154968,
+    "test_precision": 0.7697841726618705,
+    "test_recall": 0.5631578947368421,
+    "test_f1": 0.6504559270516718,
+    "test_accuracy": 0.8847695390781564,
+    "test_support": 190,
+    "test_runtime": 0.2988,
+    "test_samples_per_second": 123.819,
+    "test_steps_per_second": 10.039,
+    "epoch": 10.0
+  }
+}

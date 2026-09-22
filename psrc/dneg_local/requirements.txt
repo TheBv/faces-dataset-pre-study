@@ -1,0 +1,16 @@
+# training / evaluation dependencies of dneg_local (install torch matching your CUDA first)
+torch
+# EuroBERT's remote modeling code does not run on transformers 5 (RoPE KeyError: 'default')
+transformers>=4.48,<5
+datasets
+accelerate
+torch_geometric
+spacy
+de_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.8.0/de_core_news_sm-3.8.0-py3-none-any.whl
+numpy
+safetensors
+huggingface_hub
+scikit-learn
+requests
+# optional: compare against the published models (eval_main.py --dneg ...)
+dneg

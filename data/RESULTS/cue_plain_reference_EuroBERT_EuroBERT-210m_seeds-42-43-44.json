@@ -1,0 +1,285 @@
+{
+  "group": "cue_plain_reference_EuroBERT_EuroBERT-210m",
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "runs": {
+    "42": {
+      "config": {
+        "variant": "reference",
+        "task": "cue",
+        "architecture": "plain",
+        "bert_model": "EuroBERT/EuroBERT-210m",
+        "epochs": 10,
+        "batchsize": 16,
+        "learning_rate": 2e-05,
+        "max_length": 256,
+        "seed": 42,
+        "too_long": {
+          "train": 0,
+          "eval": 0,
+          "test": 0
+        }
+      },
+      "eval": {
+        "eval_loss": 0.040016259998083115,
+        "eval_precision": 0.9210526315789473,
+        "eval_recall": 0.875,
+        "eval_f1": 0.8974358974358975,
+        "eval_accuracy": 0.9947746570868713,
+        "eval_support": 40,
+        "eval_runtime": 1.0644,
+        "eval_samples_per_second": 148.447,
+        "eval_steps_per_second": 9.395,
+        "epoch": 10.0
+      },
+      "test": {
+        "test_loss": 0.0546531118452549,
+        "test_precision": 0.7391304347826086,
+        "test_recall": 0.8947368421052632,
+        "test_f1": 0.8095238095238095,
+        "test_accuracy": 0.9908571428571429,
+        "test_support": 38,
+        "test_runtime": 1.0726,
+        "test_samples_per_second": 147.305,
+        "test_steps_per_second": 9.323,
+        "epoch": 10.0
+      },
+      "train_seconds": 309.78554463386536
+    },
+    "43": {
+      "config": {
+        "variant": "reference",
+        "task": "cue",
+        "architecture": "plain",
+        "bert_model": "EuroBERT/EuroBERT-210m",
+        "epochs": 10,
+        "batchsize": 16,
+        "learning_rate": 2e-05,
+        "max_length": 256,
+        "seed": 43,
+        "too_long": {
+          "train": 0,
+          "eval": 0,
+          "test": 0
+        }
+      },
+      "eval": {
+        "eval_loss": 0.06651284545660019,
+        "eval_precision": 0.9428571428571428,
+        "eval_recall": 0.825,
+        "eval_f1": 0.88,
+        "eval_accuracy": 0.9941214892227302,
+        "eval_support": 40,
+        "eval_runtime": 1.0786,
+        "eval_samples_per_second": 146.487,
+        "eval_steps_per_second": 9.271,
+        "epoch": 10.0
+      },
+      "test": {
+        "test_loss": 0.05821782723069191,
+        "test_precision": 0.875,
+        "test_recall": 0.9210526315789473,
+        "test_f1": 0.8974358974358975,
+        "test_accuracy": 0.9954285714285714,
+        "test_support": 38,
+        "test_runtime": 1.0714,
+        "test_samples_per_second": 147.476,
+        "test_steps_per_second": 9.334,
+        "epoch": 10.0
+      },
+      "train_seconds": 279.9195647239685
+    },
+    "44": {
+      "config": {
+        "variant": "reference",
+        "task": "cue",
+        "architecture": "plain",
+        "bert_model": "EuroBERT/EuroBERT-210m",
+        "epochs": 10,
+        "batchsize": 16,
+        "learning_rate": 2e-05,
+        "max_length": 256,
+        "seed": 44,
+        "too_long": {
+          "train": 0,
+          "eval": 0,
+          "test": 0
+        }
+      },
+      "eval": {
+        "eval_loss": 0.0429687462747097,
+        "eval_precision": 0.9428571428571428,
+        "eval_recall": 0.825,
+        "eval_f1": 0.88,
+        "eval_accuracy": 0.9941214892227302,
+        "eval_support": 40,
+        "eval_runtime": 1.0712,
+        "eval_samples_per_second": 147.501,
+        "eval_steps_per_second": 9.336,
+        "epoch": 10.0
+      },
+      "test": {
+        "test_loss": 0.037728291004896164,
+        "test_precision": 0.8947368421052632,
+        "test_recall": 0.8947368421052632,
+        "test_f1": 0.8947368421052632,
+        "test_accuracy": 0.9954285714285714,
+        "test_support": 38,
+        "test_runtime": 1.073,
+        "test_samples_per_second": 147.246,
+        "test_steps_per_second": 9.319,
+        "epoch": 10.0
+      },
+      "train_seconds": 279.3008577823639
+    }
+  },
+  "aggregate": {
+    "eval": {
+      "eval_loss": {
+        "mean": 0.049832617243131004,
+        "std": 0.014520737024802742,
+        "min": 0.040016259998083115,
+        "max": 0.06651284545660019,
+        "n": 3
+      },
+      "eval_precision": {
+        "mean": 0.9355889724310776,
+        "std": 0.012588840456014399,
+        "min": 0.9210526315789473,
+        "max": 0.9428571428571428,
+        "n": 3
+      },
+      "eval_recall": {
+        "mean": 0.8416666666666667,
+        "std": 0.028867513459481315,
+        "min": 0.825,
+        "max": 0.875,
+        "n": 3
+      },
+      "eval_f1": {
+        "mean": 0.8858119658119659,
+        "std": 0.010066620078178106,
+        "min": 0.88,
+        "max": 0.8974358974358975,
+        "n": 3
+      },
+      "eval_accuracy": {
+        "mean": 0.9943392118441107,
+        "std": 0.00037710664218784613,
+        "min": 0.9941214892227302,
+        "max": 0.9947746570868713,
+        "n": 3
+      },
+      "eval_support": {
+        "mean": 40.0,
+        "std": 0.0,
+        "min": 40.0,
+        "max": 40.0,
+        "n": 3
+      },
+      "eval_runtime": {
+        "mean": 1.0714,
+        "std": 0.007102112361825878,
+        "min": 1.0644,
+        "max": 1.0786,
+        "n": 3
+      },
+      "eval_samples_per_second": {
+        "mean": 147.47833333333332,
+        "std": 0.9801965789235041,
+        "min": 146.487,
+        "max": 148.447,
+        "n": 3
+      },
+      "eval_steps_per_second": {
+        "mean": 9.334000000000001,
+        "std": 0.06202418882984222,
+        "min": 9.271,
+        "max": 9.395,
+        "n": 3
+      },
+      "epoch": {
+        "mean": 10.0,
+        "std": 0.0,
+        "min": 10.0,
+        "max": 10.0,
+        "n": 3
+      }
+    },
+    "test": {
+      "test_loss": {
+        "mean": 0.05019974336028099,
+        "std": 0.010946672637576595,
+        "min": 0.037728291004896164,
+        "max": 0.05821782723069191,
+        "n": 3
+      },
+      "test_precision": {
+        "mean": 0.8362890922959573,
+        "std": 0.08471858875960549,
+        "min": 0.7391304347826086,
+        "max": 0.8947368421052632,
+        "n": 3
+      },
+      "test_recall": {
+        "mean": 0.9035087719298246,
+        "std": 0.015193428136569083,
+        "min": 0.8947368421052632,
+        "max": 0.9210526315789473,
+        "n": 3
+      },
+      "test_f1": {
+        "mean": 0.8672321830216568,
+        "std": 0.04999513480074566,
+        "min": 0.8095238095238095,
+        "max": 0.8974358974358975,
+        "n": 3
+      },
+      "test_accuracy": {
+        "mean": 0.993904761904762,
+        "std": 0.0026393155162954254,
+        "min": 0.9908571428571429,
+        "max": 0.9954285714285714,
+        "n": 3
+      },
+      "test_support": {
+        "mean": 38.0,
+        "std": 0.0,
+        "min": 38.0,
+        "max": 38.0,
+        "n": 3
+      },
+      "test_runtime": {
+        "mean": 1.0723333333333334,
+        "std": 0.0008326663997864858,
+        "min": 1.0714,
+        "max": 1.073,
+        "n": 3
+      },
+      "test_samples_per_second": {
+        "mean": 147.34233333333336,
+        "std": 0.11945850046493996,
+        "min": 147.246,
+        "max": 147.476,
+        "n": 3
+      },
+      "test_steps_per_second": {
+        "mean": 9.325333333333333,
+        "std": 0.007767453465153421,
+        "min": 9.319,
+        "max": 9.334,
+        "n": 3
+      },
+      "epoch": {
+        "mean": 10.0,
+        "std": 0.0,
+        "min": 10.0,
+        "max": 10.0,
+        "n": 3
+      }
+    }
+  }
+}

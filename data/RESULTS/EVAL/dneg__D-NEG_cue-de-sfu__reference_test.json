@@ -1,0 +1,20 @@
+{
+  "model": "D-NEG/cue-de-sfu",
+  "source": "dneg",
+  "task": "cue",
+  "architecture": "plain",
+  "variant": "reference",
+  "split": "test",
+  "max_length": 256,
+  "truncated_blocks": 0,
+  "metrics": {
+    "precision": 0.9310344827586207,
+    "recall": 0.7105263157894737,
+    "f1": 0.8059701492537312,
+    "accuracy": 0.9925714285714285,
+    "support": 38,
+    "exact_match": 0.9177215189873418,
+    "blocks": 158
+  },
+  "predictions_file": "/home/staff_homes/lehammer/Documents/work/faces-dataset-pre-study/data/RESULTS/EVAL/dneg__D-NEG_cue-de-sfu__reference_test.pred.conll"
+}

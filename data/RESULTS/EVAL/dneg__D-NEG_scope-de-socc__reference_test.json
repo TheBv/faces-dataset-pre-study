@@ -1,0 +1,20 @@
+{
+  "model": "D-NEG/scope-de-socc",
+  "source": "dneg",
+  "task": "scope",
+  "architecture": "plain",
+  "variant": "reference",
+  "split": "test",
+  "max_length": 256,
+  "truncated_blocks": 0,
+  "metrics": {
+    "precision": 0.5058823529411764,
+    "recall": 0.22631578947368422,
+    "f1": 0.3127272727272727,
+    "accuracy": 0.8106212424849699,
+    "support": 190,
+    "exact_match": 0.10810810810810811,
+    "blocks": 37
+  },
+  "predictions_file": "/home/staff_homes/lehammer/Documents/work/faces-dataset-pre-study/data/RESULTS/EVAL/dneg__D-NEG_scope-de-socc__reference_test.pred.conll"
+}
