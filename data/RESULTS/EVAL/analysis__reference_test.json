@@ -1,0 +1,420 @@
+{
+  "cue_types": {
+    "ours_gat": {
+      "recall": {
+        "nicht": {
+          "found": 24.0,
+          "gold": 24
+        },
+        "unscharf": {
+          "found": 2.0,
+          "gold": 2
+        },
+        "nie": {
+          "found": 2.0,
+          "gold": 2
+        },
+        "weiß": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "stattdessen": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "selten": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "nee": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "versager": {
+          "found": 0.6666666666666666,
+          "gold": 1
+        },
+        "niemand": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "ohne": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "nichterwerbstätig": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "ausgeschlossen": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "aufhören": {
+          "found": 0.0,
+          "gold": 1
+        }
+      },
+      "false_positives": {
+        "noch": 1.0,
+        "nicht": 1.0,
+        "verschwommen": 1.0,
+        "abzug": 0.6666666666666666,
+        "ne": 0.6666666666666666,
+        "nur": 0.3333333333333333
+      }
+    },
+    "ours_plain": {
+      "recall": {
+        "nicht": {
+          "found": 24.0,
+          "gold": 24
+        },
+        "unscharf": {
+          "found": 2.0,
+          "gold": 2
+        },
+        "nie": {
+          "found": 2.0,
+          "gold": 2
+        },
+        "weiß": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "stattdessen": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "selten": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "nee": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "versager": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "niemand": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "ohne": {
+          "found": 0.3333333333333333,
+          "gold": 1
+        },
+        "nichterwerbstätig": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "ausgeschlossen": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "aufhören": {
+          "found": 0.0,
+          "gold": 1
+        }
+      },
+      "false_positives": {
+        "noch": 1.6666666666666667,
+        "nicht": 1.0,
+        "verschwommen": 1.0,
+        "abzug": 0.6666666666666666,
+        "ne": 0.6666666666666666,
+        "n": 0.6666666666666666,
+        "gar": 0.3333333333333333,
+        "ledig": 0.3333333333333333,
+        "kaputt": 0.3333333333333333,
+        "nur": 0.3333333333333333
+      }
+    },
+    "dneg_plain_best": {
+      "recall": {
+        "nicht": {
+          "found": 24.0,
+          "gold": 24
+        },
+        "unscharf": {
+          "found": 0.0,
+          "gold": 2
+        },
+        "nie": {
+          "found": 2.0,
+          "gold": 2
+        },
+        "weiß": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "stattdessen": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "selten": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "nee": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "versager": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "niemand": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "ohne": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "nichterwerbstätig": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "ausgeschlossen": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "aufhören": {
+          "found": 0.0,
+          "gold": 1
+        }
+      },
+      "false_positives": {
+        "ohne": 1.0,
+        "nicht": 1.0
+      }
+    },
+    "dneg_gat_best": {
+      "recall": {
+        "nicht": {
+          "found": 24.0,
+          "gold": 24
+        },
+        "unscharf": {
+          "found": 0.0,
+          "gold": 2
+        },
+        "nie": {
+          "found": 2.0,
+          "gold": 2
+        },
+        "weiß": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "stattdessen": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "selten": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "nee": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "versager": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "niemand": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "ohne": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "nichterwerbstätig": {
+          "found": 1.0,
+          "gold": 1
+        },
+        "ausgeschlossen": {
+          "found": 0.0,
+          "gold": 1
+        },
+        "aufhören": {
+          "found": 0.0,
+          "gold": 1
+        }
+      },
+      "false_positives": {
+        "ohne": 1.0,
+        "nicht": 1.0
+      }
+    }
+  },
+  "scope_errors": {
+    "ours_gat": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 3.6036036036036037,
+      "exact": 0.42342342342342343,
+      "too_short": 0.32432432432432434,
+      "too_long": 0.13513513513513514,
+      "other": 0.11711711711711711
+    },
+    "ours_plain": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 3.4684684684684686,
+      "exact": 0.3153153153153153,
+      "too_short": 0.38738738738738737,
+      "too_long": 0.1981981981981982,
+      "other": 0.0990990990990991
+    },
+    "dneg_plain_bioscope_abstracts": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 4.243243243243243,
+      "exact": 0.1891891891891892,
+      "too_short": 0.43243243243243246,
+      "too_long": 0.13513513513513514,
+      "other": 0.24324324324324326
+    },
+    "dneg_plain_bioscope_full": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 2.891891891891892,
+      "exact": 0.05405405405405406,
+      "too_short": 0.5135135135135135,
+      "too_long": 0.13513513513513514,
+      "other": 0.2972972972972973
+    },
+    "dneg_plain_conan": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 6.675675675675675,
+      "exact": 0.05405405405405406,
+      "too_short": 0.05405405405405406,
+      "too_long": 0.5675675675675675,
+      "other": 0.32432432432432434
+    },
+    "dneg_plain_dt_neg": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 3.4864864864864864,
+      "exact": 0.16216216216216217,
+      "too_short": 0.4594594594594595,
+      "too_long": 0.24324324324324326,
+      "other": 0.13513513513513514
+    },
+    "dneg_plain_sfu": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 3.108108108108108,
+      "exact": 0.1891891891891892,
+      "too_short": 0.4864864864864865,
+      "too_long": 0.10810810810810811,
+      "other": 0.21621621621621623
+    },
+    "dneg_plain_socc": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 2.2972972972972974,
+      "exact": 0.10810810810810811,
+      "too_short": 0.6486486486486487,
+      "too_long": 0.05405405405405406,
+      "other": 0.1891891891891892
+    },
+    "dneg_gat_bioscope_abstracts": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 3.6216216216216215,
+      "exact": 0.1891891891891892,
+      "too_short": 0.32432432432432434,
+      "too_long": 0.1891891891891892,
+      "other": 0.2972972972972973
+    },
+    "dneg_gat_bioscope_full": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 2.5405405405405403,
+      "exact": 0.08108108108108109,
+      "too_short": 0.4864864864864865,
+      "too_long": 0.05405405405405406,
+      "other": 0.3783783783783784
+    },
+    "dneg_gat_conan": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 6.648648648648648,
+      "exact": 0.24324324324324326,
+      "too_short": 0.16216216216216217,
+      "too_long": 0.2702702702702703,
+      "other": 0.32432432432432434
+    },
+    "dneg_gat_dt_neg": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 3.972972972972973,
+      "exact": 0.2702702702702703,
+      "too_short": 0.2702702702702703,
+      "too_long": 0.24324324324324326,
+      "other": 0.21621621621621623
+    },
+    "dneg_gat_sfu": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 2.72972972972973,
+      "exact": 0.10810810810810811,
+      "too_short": 0.4864864864864865,
+      "too_long": 0.05405405405405406,
+      "other": 0.35135135135135137
+    },
+    "dneg_gat_socc": {
+      "gold_scope_length": 5.135135135135135,
+      "pred_scope_length": 4.297297297297297,
+      "exact": 0.13513513513513514,
+      "too_short": 0.4594594594594595,
+      "too_long": 0.05405405405405406,
+      "other": 0.35135135135135137
+    }
+  },
+  "bootstrap": {
+    "cue_ours_plain_vs_D-NEG/cue-gat-de-sfu": {
+      "delta_f1": 0.04370277125695077,
+      "ci95": [
+        -0.03793280871670712,
+        0.14576372137347737
+      ]
+    },
+    "cue_ours_gat_vs_D-NEG/cue-gat-de-sfu": {
+      "delta_f1": 0.058933330791307914,
+      "ci95": [
+        -0.01414231658608367,
+        0.15834307992202723
+      ]
+    },
+    "cue_ours_gat_vs_ours_plain": {
+      "delta_f1": 0.015230559534357146,
+      "ci95": [
+        -0.005620268579111687,
+        0.03821526892089455
+      ]
+    },
+    "scope_ours_plain_vs_D-NEG/scope-gat-de-dt_neg": {
+      "delta_f1": 0.0522122252983277,
+      "ci95": [
+        -0.026799286850027193,
+        0.13631917002254923
+      ]
+    },
+    "scope_ours_gat_vs_D-NEG/scope-gat-de-dt_neg": {
+      "delta_f1": 0.05586544332926513,
+      "ci95": [
+        -0.037717071733413654,
+        0.15265174707994633
+      ]
+    },
+    "scope_ours_gat_vs_ours_plain": {
+      "delta_f1": 0.003653218030937433,
+      "ci95": [
+        -0.03724166348900493,
+        0.0422442648013045
+      ]
+    }
+  },
+  "best_dneg": {
+    "cue_plain": "D-NEG/cue-de-sfu",
+    "cue_gat": "D-NEG/cue-gat-de-sfu",
+    "scope_plain": "D-NEG/scope-de-dt_neg",
+    "scope_gat": "D-NEG/scope-gat-de-dt_neg"
+  }
+}

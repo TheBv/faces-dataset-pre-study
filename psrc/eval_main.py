@@ -46,8 +46,9 @@ def dneg_repos(datasets, modes, tasks, lang: str = "de"):
 def group_models(local_paths, dneg_paths, task=None, arch=None):
     """{(source, group_name): [paths]}, local seed runs of one configuration share a group."""
     groups = defaultdict(list)
+    local_paths = list(dict.fromkeys(os.path.normpath(p) for p in local_paths))  # a model is evaluated once
+    dneg_paths = list(dict.fromkeys(dneg_paths))
     for path in local_paths:
-        path = os.path.normpath(path)
         if not os.path.isfile(f"{path}/config.json"):
             print(f"skipping {path}: no trained model (config.json) found")
             continue
