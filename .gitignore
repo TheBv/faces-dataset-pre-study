@@ -221,3 +221,6 @@ __marimo__/
 /data/MODELS/
 /paper/
 /review/
+/data/neg_annotations/
+/data/neg_samples/
+/data/RESULTS/EVAL/*.conll
